@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>班級音樂廣播台 - 大螢幕播放端</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    @keyframes pulse-glow {
+      0%, 100% { box-shadow: 0 0 25px rgba(99, 102, 241, 0.35); }
+      50% { box-shadow: 0 0 50px rgba(168, 85, 247, 0.6); }
+    }
+    .ambient-glow {
+      animation: pulse-glow 4s ease-in-out infinite;
+    }
+    /* 動態音波等化器動畫 */
+    @keyframes eq-bounce {
+      0%, 100% { height: 6px; }
+      50% { height: 32px; }
+    }
+    .eq-bar {
+      animation: eq-bounce 1.2s ease-in-out infinite;
+    }
+    .eq-bar:nth-child(1) { animation-delay: 0.1s; }
+    .eq-bar:nth-child(2) { animation-delay: 0.3s; }
+    .eq-bar:nth-child(3) { animation-delay: 0.5s; }
+    .eq-bar:nth-child(4) { animation-delay: 0.2s; }
+    .eq-bar:nth-child(5) { animation-delay: 0.4s; }
+    .eq-bar:nth-child(6) { animation-delay: 0.6s; }
+    .eq-paused .eq-bar {
+      animation-play-state: paused;
+      height: 6px !important;
+    }
+    /* 自訂捲軸 */
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.6);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(99, 102, 241, 0.4);
+      border-radius: 999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(99, 102, 241, 0.8);
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col justify-between overflow-x-hidden selection:bg-indigo-500 selection:text-white">
+
+  <!-- 首次啟動 Autoplay 解鎖遮罩 -->
+  <div id="autoplay-modal" class="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center cursor-pointer transition-opacity duration-500">
+    <div class="bg-slate-900/90 border border-indigo-500/50 p-8 md:p-12 rounded-3xl max-w-lg shadow-2xl ambient-glow">
+      <div class="w-20 h-20 rounded-full bg-indigo-600/30 border border-indigo-400 flex items-center justify-center text-indigo-300 text-3xl mx-auto mb-6 animate-bounce">
+        <i class="fa-solid fa-play ml-1"></i>
+      </div>
+      <h2 class="text-2xl md:text-3xl font-extrabold text-white mb-3">啟動班級點歌播放台</h2>
+      <p class="text-slate-300 text-sm md:text-base mb-6 leading-relaxed">
+        因瀏覽器音訊安全規範，請點擊下方按鈕以啟動大螢幕播放與自動連播功能。
+      </p>
+      <button id="btn-start-player" class="w-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 hover:from-indigo-600 hover:to-pink-600 text-white font-bold py-3.5 px-8 rounded-xl shadow-lg transition-transform transform active:scale-95 text-base tracking-wide flex items-center justify-center gap-3">
+        <i class="fa-solid fa-headphones-simple"></i>
+        <span>進入點播大螢幕</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- 頂部資訊列 -->
+  <header class="px-6 py-4 flex items-center justify-between border-b border-slate-800/80 bg-slate-900/40 backdrop-blur-md z-20">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-purple-500 flex items-center justify-center shadow-md">
+        <i class="fa-solid fa-radio text-white text-lg"></i>
+      </div>
+      <div>
+        <h1 class="text-lg md:text-xl font-bold tracking-tight text-white flex items-center gap-2">
+          <span>班級音樂廣播台</span>
+          <span id="badge-status" class="text-[11px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span> 連線中
+          </span>
+        </h1>
+        <p class="text-xs text-slate-400 flex items-center gap-2">
+          <span id="queue-count-text">待播：0 首</span>
+          <span>•</span>
+          <span id="mode-text">依點歌順序播放</span>
+        </p>
+      </div>
+    </div>
+
+    <!-- 右側點歌 QR Code 卡片 -->
+    <div class="flex items-center gap-4 bg-slate-800/80 border border-slate-700/80 rounded-2xl p-2.5 px-4 shadow-xl backdrop-blur-md">
+      <div class="bg-white p-1 rounded-xl shadow">
+        <img id="qr-img" src="" alt="點歌QR" class="w-16 h-16 md:w-20 md:h-20 rounded" />
+      </div>
+      <div class="text-left hidden sm:block">
+        <div class="text-[11px] font-bold text-pink-400 uppercase tracking-wider flex items-center gap-1.5">
+          <i class="fa-solid fa-qrcode"></i> 掃描 QR 碼點歌
+        </div>
+        <div id="student-url-text" class="text-xs font-mono font-bold text-slate-200 mt-1 max-w-[200px] truncate">
+          載入網址中...
+        </div>
+        <div class="text-[11px] text-slate-400 mt-0.5">免登入 · 貼網址即播</div>
+      </div>
+    </div>
+  </header>
+
+  <!-- 主內容區：左側播放器與點播卡片 + 右側排隊清單 -->
+  <main class="flex-1 p-4 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 max-w-7xl mx-auto w-full items-start">
+
+    <!-- 左半部 (佔 8 欄)：當前播放與點播寄語專區 -->
+    <div class="lg:col-span-8 flex flex-col gap-6">
+
+      <!-- 寄語聚光燈卡片 (Spotlight Card) -->
+      <div id="message-card" class="relative overflow-hidden bg-gradient-to-br from-indigo-950/60 via-slate-900/80 to-purple-950/50 border border-indigo-500/30 rounded-3xl p-6 md:p-8 backdrop-blur-xl shadow-2xl transition-all">
+        <!-- 裝飾背景光暈 -->
+        <div class="absolute -top-16 -left-16 w-48 h-48 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none"></div>
+        <div class="absolute -bottom-16 -right-16 w-48 h-48 bg-purple-500/20 rounded-full blur-3xl pointer-events-none"></div>
+
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center gap-2">
+            <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-pink-500/20 text-pink-300 border border-pink-500/30">
+              <i class="fa-solid fa-heart text-pink-400 animate-pulse"></i> 點播心聲
+            </span>
+            <span id="requester-tag" class="text-sm font-semibold text-indigo-300 bg-indigo-950/80 px-3 py-1 rounded-full border border-indigo-800">
+              來自同學點播
+            </span>
+          </div>
+
+          <!-- 動態音波等化器 -->
+          <div id="equalizer" class="flex items-end gap-1 h-8 eq-paused">
+            <div class="w-1.5 bg-gradient-to-t from-indigo-500 to-pink-500 rounded-full eq-bar"></div>
+            <div class="w-1.5 bg-gradient-to-t from-indigo-500 to-pink-500 rounded-full eq-bar"></div>
+            <div class="w-1.5 bg-gradient-to-t from-indigo-500 to-pink-500 rounded-full eq-bar"></div>
+            <div class="w-1.5 bg-gradient-to-t from-indigo-500 to-pink-500 rounded-full eq-bar"></div>
+            <div class="w-1.5 bg-gradient-to-t from-indigo-500 to-pink-500 rounded-full eq-bar"></div>
+            <div class="w-1.5 bg-gradient-to-t from-indigo-500 to-pink-500 rounded-full eq-bar"></div>
+          </div>
+        </div>
+
+        <!-- 點播寄語內文（超大字，適合投影機） -->
+        <div class="my-3 min-h-[70px] flex items-center">
+          <blockquote id="requester-note" class="text-xl md:text-3xl font-extrabold text-white leading-relaxed tracking-wide drop-shadow-sm">
+            「下課時間到囉！聽首歌放鬆一下吧～」
+          </blockquote>
+        </div>
+
+        <!-- 當前歌曲名稱與頻道 -->
+        <div class="pt-4 border-t border-slate-700/60 flex items-center justify-between">
+          <div class="truncate mr-4">
+            <h2 id="current-song-title" class="text-base md:text-xl font-bold text-indigo-200 truncate">
+              目前暫無播放歌曲
+            </h2>
+            <p id="current-song-author" class="text-xs md:text-sm text-slate-400 truncate mt-0.5">
+              請掃描右上方 QR Code 點播歌曲
+            </p>
+          </div>
+          <div id="song-time" class="text-xs font-mono font-bold text-slate-400 bg-slate-800/80 px-2.5 py-1.5 rounded-lg border border-slate-700">
+            00:00 / 00:00
+          </div>
+        </div>
+
+        <!-- 進度條 -->
+        <div class="w-full bg-slate-800 rounded-full h-2 mt-3 overflow-hidden">
+          <div id="progress-bar" class="bg-gradient-to-r from-indigo-500 to-pink-500 h-2 rounded-full w-0 transition-all duration-300"></div>
+        </div>
+      </div>
+
+      <!-- YouTube 嵌入播放器容器 -->
+      <div class="relative bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl aspect-video w-full flex items-center justify-center">
+        <!-- YouTube IFrame 容器 -->
+        <div id="yt-player-container" class="w-full h-full">
+          <div id="youtube-player"></div>
+        </div>
+
+        <!-- 錯誤通知卡片 (例如 Error 101/150 版權受限無法嵌入) -->
+        <div id="error-alert" class="hidden absolute inset-0 bg-slate-950/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center z-30">
+          <div class="w-16 h-16 rounded-full bg-amber-500/20 border border-amber-500/50 flex items-center justify-center text-amber-400 text-3xl mb-4 animate-bounce">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+          </div>
+          <h3 id="error-title" class="text-xl font-bold text-white mb-2">版權限制無法嵌入播放</h3>
+          <p id="error-desc" class="text-sm text-slate-300 max-w-md leading-relaxed mb-4">
+            此影片因版權方限制無法於外部網頁播放（錯誤代碼 101/150）。
+          </p>
+          <div class="inline-flex items-center gap-2 text-indigo-400 text-xs font-bold bg-indigo-950/80 px-4 py-2 rounded-full border border-indigo-800">
+            <i class="fa-solid fa-forward-step animate-spin"></i>
+            <span id="countdown-text">將在 3 秒後自動切換至下一首...</span>
+          </div>
+        </div>
+
+        <!-- 空佇列等待畫面 -->
+        <div id="idle-screen" class="absolute inset-0 bg-slate-900/90 flex flex-col items-center justify-center text-center p-6">
+          <div class="w-20 h-20 rounded-full bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400 text-3xl mb-4">
+            <i class="fa-solid fa-music"></i>
+          </div>
+          <h3 class="text-2xl font-bold text-white mb-2">等候點歌中</h3>
+          <p class="text-sm text-slate-400 max-w-sm mb-4">
+            清單中目前沒有待播歌曲，拿起手機掃描右上角的 QR 碼即可點歌！
+          </p>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- 右半部 (佔 4 欄)：待播清單 (Queue) -->
+    <div class="lg:col-span-4 bg-slate-900/60 border border-slate-800/80 rounded-3xl p-5 backdrop-blur-md flex flex-col h-[650px] shadow-2xl">
+      <div class="flex items-center justify-between pb-4 border-b border-slate-800">
+        <h2 class="text-base font-bold text-white flex items-center gap-2">
+          <i class="fa-solid fa-list-ol text-indigo-400"></i>
+          <span>即時待播清單</span>
+        </h2>
+        <span id="queue-badge" class="text-xs font-mono font-bold bg-indigo-500/20 text-indigo-300 px-2.5 py-0.5 rounded-full border border-indigo-500/30">
+          0 首
+        </span>
+      </div>
+
+      <!-- 佇列列表容器 -->
+      <div id="queue-list" class="flex-1 overflow-y-auto py-3 space-y-3 pr-1">
+        <!-- 動態由 JS 渲染 -->
+        <div class="text-center py-12 text-slate-500 text-sm">
+          <i class="fa-regular fa-folder-open text-3xl mb-2 block text-slate-600"></i>
+          尚無待播歌曲
+        </div>
+      </div>
+
+      <!-- 快速清空按鈕（老師用） -->
+      <div class="pt-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
+        <span>💡 點擊歌曲旁 ❌ 可直接剔除</span>
+        <button id="btn-quick-clear" class="text-slate-400 hover:text-red-400 transition-colors">
+          清空佇列
+        </button>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- 底部懸浮老師控制列 (Master Toolbar) -->
+  <footer class="sticky bottom-0 z-30 bg-slate-900/90 border-t border-slate-800 backdrop-blur-lg px-6 py-3 flex items-center justify-between shadow-2xl">
+    <div class="flex items-center gap-3">
+      <!-- 播放 / 暫停 -->
+      <button id="btn-toggle-play" class="w-11 h-11 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white flex items-center justify-center transition active:scale-95 shadow-md">
+        <i class="fa-solid fa-pause text-base"></i>
+      </button>
+
+      <!-- 切換下一首 -->
+      <button id="btn-skip-song" class="w-11 h-11 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center transition active:scale-95 border border-slate-700" title="切下一首 (N)">
+        <i class="fa-solid fa-forward-step text-base"></i>
+      </button>
+
+      <!-- 音量控制 -->
+      <div class="hidden sm:flex items-center gap-2 ml-2 bg-slate-800/80 px-3 py-2 rounded-xl border border-slate-700">
+        <button id="btn-mute" class="text-slate-400 hover:text-white transition">
+          <i class="fa-solid fa-volume-high text-sm"></i>
+        </button>
+        <input id="volume-slider" type="range" min="0" max="100" value="80" class="w-20 md:w-28 h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500">
+      </div>
+    </div>
+
+    <!-- 鍵盤快捷鍵提示 -->
+    <div class="hidden md:flex items-center gap-4 text-xs text-slate-400">
+      <span class="flex items-center gap-1"><kbd class="bg-slate-800 px-2 py-0.5 rounded border border-slate-700 font-mono text-[10px]">空白鍵</kbd> 暫停/播放</span>
+      <span class="flex items-center gap-1"><kbd class="bg-slate-800 px-2 py-0.5 rounded border border-slate-700 font-mono text-[10px]">N</kbd> 下一首</span>
+      <span class="flex items-center gap-1"><kbd class="bg-slate-800 px-2 py-0.5 rounded border border-slate-700 font-mono text-[10px]">M</kbd> 靜音</span>
+      <span class="flex items-center gap-1"><kbd class="bg-slate-800 px-2 py-0.5 rounded border border-slate-700 font-mono text-[10px]">F</kbd> 全螢幕</span>
+    </div>
+
+    <div class="flex items-center gap-2">
+      <!-- 全螢幕切換 -->
+      <button id="btn-fullscreen" class="w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center border border-slate-700 transition" title="全螢幕 (F)">
+        <i class="fa-solid fa-expand text-sm"></i>
+      </button>
+      <!-- 管理設定按鈕 -->
+      <a href="/admin.html" target="_blank" class="w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center border border-slate-700 transition" title="老師管理設定">
+        <i class="fa-solid fa-gear text-sm"></i>
+      </a>
+    </div>
+  </footer>
+
+  <!-- 載入 YouTube IFrame Player API -->
+  <script src="https://www.youtube.com/iframe_api"></script>
+
+  <script>
+    // 全域變數
+    const socket = io();
+    let player = null;
+    let isPlayerReady = false;
+    let isPlaying = false;
+    let currentSong = null;
+    let queue = [];
+    let progressInterval = null;
+    let skipTimer = null;
+    let serverSettings = { maxDuration: 360, playMode: 'fifo' };
+
+    // DOM 節點
+    const autoplayModal = document.getElementById('autoplay-modal');
+    const btnStartPlayer = document.getElementById('btn-start-player');
+    const qrImg = document.getElementById('qr-img');
+    const studentUrlText = document.getElementById('student-url-text');
+    const currentSongTitle = document.getElementById('current-song-title');
+    const currentSongAuthor = document.getElementById('current-song-author');
+    const requesterTag = document.getElementById('requester-tag');
+    const requesterNote = document.getElementById('requester-note');
+    const songTime = document.getElementById('song-time');
+    const progressBar = document.getElementById('progress-bar');
+    const queueList = document.getElementById('queue-list');
+    const queueBadge = document.getElementById('queue-badge');
+    const queueCountText = document.getElementById('queue-count-text');
+    const modeText = document.getElementById('mode-text');
+    const idleScreen = document.getElementById('idle-screen');
+    const errorAlert = document.getElementById('error-alert');
+    const errorTitle = document.getElementById('error-title');
+    const errorDesc = document.getElementById('error-desc');
+    const countdownText = document.getElementById('countdown-text');
+    const equalizer = document.getElementById('equalizer');
+
+    const btnTogglePlay = document.getElementById('btn-toggle-play');
+    const btnSkipSong = document.getElementById('btn-skip-song');
+    const btnMute = document.getElementById('btn-mute');
+    const volumeSlider = document.getElementById('volume-slider');
+    const btnFullscreen = document.getElementById('btn-fullscreen');
+    const btnQuickClear = document.getElementById('btn-quick-clear');
+
+    // 格式化時間 (秒 -> mm:ss)
+    function formatTime(seconds) {
+      if (!seconds || isNaN(seconds)) return '00:00';
+      const mins = Math.floor(seconds / 60);
+      const secs = Math.floor(seconds % 60);
+      return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    // 初始化連線資訊與 QR Code
+    fetch('/api/info')
+      .then(res => res.json())
+      .then(data => {
+        if (data.qrCodeDataUrl) qrImg.src = data.qrCodeDataUrl;
+        if (data.studentUrl) studentUrlText.textContent = data.studentUrl;
+      })
+      .catch(console.error);
+
+    // 啟動點擊解鎖 Autoplay
+    btnStartPlayer.addEventListener('click', () => {
+      autoplayModal.style.opacity = '0';
+      setTimeout(() => autoplayModal.classList.add('hidden'), 500);
+      if (currentSong && player && isPlayerReady) {
+        player.playVideo();
+      } else if (!currentSong && queue.length > 0) {
+        socket.emit('player_next');
+      }
+    });
+
+    // YouTube API 準備就緒
+    window.onYouTubeIframeAPIReady = function() {
+      player = new YT.Player('youtube-player', {
+        height: '100%',
+        width: '100%',
+        playerVars: {
+          autoplay: 1,
+          controls: 1,
+          rel: 0,
+          modestbranding: 1,
+          playsinline: 1
+        },
+        events: {
+          'onReady': onPlayerReady,
+          'onStateChange': onPlayerStateChange,
+          'onError': onPlayerError
+        }
+      });
+    };
+
+    function onPlayerReady(event) {
+      isPlayerReady = true;
+      player.setVolume(parseInt(volumeSlider.value, 10));
+
+      // 若已有當前歌曲，立即載入
+      if (currentSong) {
+        loadSongIntoPlayer(currentSong);
+      } else if (queue.length > 0) {
+        socket.emit('player_next');
+      }
+    }
+
+    function onPlayerStateChange(event) {
+      if (event.data === YT.PlayerState.PLAYING) {
+        isPlaying = true;
+        btnTogglePlay.innerHTML = '<i class="fa-solid fa-pause text-base"></i>';
+        equalizer.classList.remove('eq-paused');
+        idleScreen.classList.add('hidden');
+        errorAlert.classList.add('hidden');
+
+        // 時長安全檢查
+        const duration = player.getDuration();
+        if (serverSettings.maxDuration > 0 && duration > serverSettings.maxDuration) {
+          console.warn('時長超過上限，自動跳過');
+          socket.emit('player_error', {
+            videoId: currentSong.videoId,
+            errorCode: 0,
+            reason: 'duration_exceeded'
+          });
+          return;
+        }
+
+        startProgressTimer();
+      } else if (event.data === YT.PlayerState.PAUSED) {
+        isPlaying = false;
+        btnTogglePlay.innerHTML = '<i class="fa-solid fa-play text-base ml-0.5"></i>';
+        equalizer.classList.add('eq-paused');
+        stopProgressTimer();
+      } else if (event.data === YT.PlayerState.ENDED) {
+        isPlaying = false;
+        stopProgressTimer();
+        socket.emit('player_next'); // 索取下一首
+      }
+    }
+
+    // 處理 YouTube 播放錯誤（如 101/150 版權受限無法嵌入）
+    function onPlayerError(event) {
+      const code = event.data;
+      console.error('YouTube Player Error:', code);
+
+      errorAlert.classList.remove('hidden');
+      if (code === 101 || code === 150) {
+        errorTitle.textContent = '版權限制無法嵌入播放';
+        errorDesc.textContent = '此歌曲版權所有者已限制在外部播放，請點播其他版本。';
+      } else if (code === 2) {
+        errorTitle.textContent = '無效的影片網址';
+        errorDesc.textContent = '該 YouTube 網址參數不正確或影片已被移除。';
+      } else {
+        errorTitle.textContent = '播放發生錯誤';
+        errorDesc.textContent = `錯誤代碼 (${code})，即將為您跳至下一首。`;
+      }
+
+      let count = 3;
+      countdownText.textContent = `將在 ${count} 秒後自動切換至下一首...`;
+      if (skipTimer) clearInterval(skipTimer);
+      skipTimer = setInterval(() => {
+        count--;
+        if (count > 0) {
+          countdownText.textContent = `將在 ${count} 秒後自動切換至下一首...`;
+        } else {
+          clearInterval(skipTimer);
+          errorAlert.classList.add('hidden');
+          socket.emit('player_error', {
+            videoId: currentSong ? currentSong.videoId : '',
+            errorCode: code
+          });
+        }
+      }, 1000);
+    }
+
+    // 載入歌曲至 Player
+    function loadSongIntoPlayer(song) {
+      if (!song) return;
+      currentSongTitle.textContent = song.title;
+      currentSongAuthor.textContent = song.author || 'YouTube 創作者';
+      requesterTag.textContent = song.requester ? `來自 ${song.requester} 的點播` : '來自 同學 的點播';
+      requesterNote.textContent = song.note ? `「${song.note}」` : '「祝全班下課愉快，天天開開心心！」';
+      idleScreen.classList.add('hidden');
+
+      if (isPlayerReady && player) {
+        player.loadVideoById(song.videoId);
+      }
+    }
+
+    // 更新進度條
+    function startProgressTimer() {
+      stopProgressTimer();
+      progressInterval = setInterval(() => {
+        if (!player || !isPlayerReady) return;
+        const current = player.getCurrentTime() || 0;
+        const total = player.getDuration() || 0;
+        songTime.textContent = `${formatTime(current)} / ${formatTime(total)}`;
+        const percent = total > 0 ? (current / total) * 100 : 0;
+        progressBar.style.width = `${percent}%`;
+      }, 500);
+    }
+
+    function stopProgressTimer() {
+      if (progressInterval) clearInterval(progressInterval);
+    }
+
+    // 渲染待播清單
+    function renderQueue(items) {
+      queue = items || [];
+      queueBadge.textContent = `${queue.length} 首`;
+      queueCountText.textContent = `待播：${queue.length} 首`;
+
+      if (queue.length === 0) {
+        queueList.innerHTML = `
+          <div class="text-center py-12 text-slate-500 text-sm">
+            <i class="fa-regular fa-folder-open text-3xl mb-2 block text-slate-600"></i>
+            目前尚無待播歌曲～
+          </div>
+        `;
+        return;
+      }
+
+      queueList.innerHTML = queue.map((song, index) => `
+        <div class="group relative flex items-center gap-3 p-2.5 rounded-2xl bg-slate-800/50 hover:bg-slate-800 border border-slate-700/50 transition-all">
+          <span class="w-6 text-center font-mono font-bold text-xs text-indigo-400">
+            ${index + 1}
+          </span>
+          <img src="${song.thumbnail}" alt="縮圖" class="w-14 h-10 object-cover rounded-lg border border-slate-700 flex-shrink-0" />
+          <div class="flex-1 min-w-0 pr-2">
+            <h4 class="text-xs font-bold text-white truncate group-hover:text-indigo-300 transition-colors">
+              ${song.title}
+            </h4>
+            <div class="flex items-center gap-2 mt-0.5 text-[11px] text-slate-400">
+              <span class="truncate text-pink-300 font-medium">👤 ${song.requester}</span>
+              ${song.duration ? `<span>• ${formatTime(song.duration)}</span>` : ''}
+              ${song.votes && song.votes.length > 0 ? `<span class="text-indigo-400 font-bold">👍 ${song.votes.length}</span>` : ''}
+            </div>
+          </div>
+          <!-- 老師快速刪除按鈕 -->
+          <button onclick="removeSongFromQueue('${song.id}')" class="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-400 p-2 rounded-lg transition-all" title="移除此歌">
+            <i class="fa-solid fa-xmark text-sm"></i>
+          </button>
+        </div>
+      `).join('');
+    }
+
+    // 移除歌曲
+    window.removeSongFromQueue = function(songId) {
+      socket.emit('admin_action', {
+        password: 'admin888',
+        action: 'remove_song',
+        payload: { songId }
+      }, (res) => {
+        if (!res.success) alert(res.message);
+      });
+    };
+
+    // Socket.io 事件監聽
+    socket.on('state_update', (data) => {
+      serverSettings = data.settings || serverSettings;
+      modeText.textContent = serverSettings.playMode === 'votes' ? '高票優先播放' : '依點歌順序播放';
+      renderQueue(data.queue);
+
+      if (data.currentSong) {
+        currentSong = data.currentSong;
+        loadSongIntoPlayer(currentSong);
+      } else {
+        currentSong = null;
+        idleScreen.classList.remove('hidden');
+        currentSongTitle.textContent = '目前暫無播放歌曲';
+        currentSongAuthor.textContent = '請掃描右上方 QR Code 點播';
+        requesterNote.textContent = '「下課時間到囉！聽首歌放鬆一下吧～」';
+      }
+    });
+
+    socket.on('queue_updated', (data) => {
+      renderQueue(data.queue);
+      // 若當前空閒且有新歌加入，自動請求下一首
+      if (!currentSong && data.queue.length > 0 && isPlayerReady) {
+        socket.emit('player_next');
+      }
+    });
+
+    socket.on('now_playing', (data) => {
+      renderQueue(data.queue);
+      if (data.currentSong) {
+        currentSong = data.currentSong;
+        loadSongIntoPlayer(currentSong);
+      } else {
+        currentSong = null;
+        idleScreen.classList.remove('hidden');
+        if (player && isPlayerReady) player.stopVideo();
+        stopProgressTimer();
+      }
+    });
+
+    socket.on('admin_command', (data) => {
+      if (data.command === 'skip') {
+        // 切下一首
+      } else if (data.command === 'play_pause') {
+        if (data.isPlaying !== undefined) {
+          data.isPlaying ? player.playVideo() : player.pauseVideo();
+        } else {
+          isPlaying ? player.pauseVideo() : player.playVideo();
+        }
+      } else if (data.command === 'set_volume') {
+        volumeSlider.value = data.volume;
+        if (player && isPlayerReady) player.setVolume(data.volume);
+      }
+    });
+
+    // 播放/暫停按鈕
+    btnTogglePlay.addEventListener('click', () => {
+      if (!player || !isPlayerReady) return;
+      if (isPlaying) {
+        player.pauseVideo();
+      } else {
+        player.playVideo();
+      }
+    });
+
+    // 切下一首按鈕
+    btnSkipSong.addEventListener('click', () => {
+      socket.emit('player_next');
+    });
+
+    // 音量調整
+    volumeSlider.addEventListener('input', (e) => {
+      const vol = parseInt(e.target.value, 10);
+      if (player && isPlayerReady) player.setVolume(vol);
+    });
+
+    // 靜音按鈕
+    btnMute.addEventListener('click', () => {
+      if (!player || !isPlayerReady) return;
+      if (player.isMuted()) {
+        player.unMute();
+        btnMute.innerHTML = '<i class="fa-solid fa-volume-high text-sm"></i>';
+      } else {
+        player.mute();
+        btnMute.innerHTML = '<i class="fa-solid fa-volume-xmark text-sm text-red-400"></i>';
+      }
+    });
+
+    // 全螢幕切換
+    btnFullscreen.addEventListener('click', () => {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen();
+      } else {
+        document.exitFullscreen();
+      }
+    });
+
+    // 快速清空佇列
+    btnQuickClear.addEventListener('click', () => {
+      if (confirm('確定要清空所有待播歌曲嗎？')) {
+        socket.emit('admin_action', {
+          password: 'admin888',
+          action: 'clear_queue'
+        });
+      }
+    });
+
+    // 鍵盤快捷鍵
+    document.addEventListener('keydown', (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        btnTogglePlay.click();
+      } else if (e.code === 'KeyN' || e.code === 'ArrowRight') {
+        e.preventDefault();
+        btnSkipSong.click();
+      } else if (e.code === 'KeyM') {
+        e.preventDefault();
+        btnMute.click();
+      } else if (e.code === 'KeyF') {
+        e.preventDefault();
+        btnFullscreen.click();
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>班級點歌系統 - 老師行動遙控後台</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    body {
+      background: radial-gradient(circle at top, #1e293b, #0f172a, #020617);
+      min-height: 100vh;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+  </style>
+</head>
+<body class="text-slate-100 pb-12">
+
+  <!-- 頂部導航 -->
+  <header class="bg-slate-900/90 border-b border-slate-800 px-4 py-3 sticky top-0 z-30 backdrop-blur-md">
+    <div class="max-w-xl mx-auto flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <div class="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
+          <i class="fa-solid fa-user-shield text-sm"></i>
+        </div>
+        <h1 class="text-sm font-bold text-white tracking-wide">
+          老師行動遙控後台
+        </h1>
+      </div>
+      <a href="/player.html" target="_blank" class="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-semibold">
+        <span>開啟大螢幕</span>
+        <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
+      </a>
+    </div>
+  </header>
+
+  <!-- 登入驗證遮罩 -->
+  <div id="login-modal" class="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 md:p-8 max-w-sm w-full shadow-2xl text-center">
+      <div class="w-16 h-16 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400 text-2xl mx-auto mb-4">
+        <i class="fa-solid fa-lock"></i>
+      </div>
+      <h2 class="text-xl font-bold text-white mb-1">請輸入管理密碼</h2>
+      <p class="text-xs text-slate-400 mb-5">預設密碼為 <code class="text-indigo-300 font-mono">admin888</code></p>
+
+      <input id="pwd-input" type="password" placeholder="輸入管理密碼" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-center text-lg text-white tracking-widest focus:outline-none focus:border-indigo-500 mb-4" />
+
+      <button id="btn-login" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl transition active:scale-95 text-sm shadow-lg">
+        驗證並進入後台
+      </button>
+    </div>
+  </div>
+
+  <!-- 後台主功能區 -->
+  <main class="max-w-xl mx-auto p-4 space-y-5">
+
+    <!-- 即時播放遙控盤 (Remote Controller) -->
+    <section class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-xl backdrop-blur-sm">
+      <h2 class="text-xs font-bold text-indigo-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+        <i class="fa-solid fa-gamepad"></i> 實體播放控制
+      </h2>
+
+      <!-- 當前曲目資訊 -->
+      <div id="admin-current-card" class="bg-slate-950/80 border border-slate-800/80 rounded-xl p-3 flex gap-3 items-center mb-4">
+        <img id="admin-current-thumb" src="" class="w-16 h-12 rounded-lg object-cover border border-slate-800 flex-shrink-0" />
+        <div class="min-w-0 flex-1">
+          <div class="text-[10px] font-bold text-pink-400 uppercase">大螢幕當前播放</div>
+          <h4 id="admin-current-title" class="text-xs font-bold text-white truncate">暫無播放歌曲</h4>
+          <p id="admin-current-requester" class="text-[11px] text-slate-400 truncate">點播人：--</p>
+        </div>
+      </div>
+
+      <!-- 快速控制鍵 -->
+      <div class="grid grid-cols-2 gap-3 mb-4">
+        <button id="btn-admin-play-pause" class="bg-slate-800 hover:bg-slate-700 text-white font-bold py-3 px-4 rounded-xl border border-slate-700 flex items-center justify-center gap-2 transition active:scale-95 text-sm shadow">
+          <i class="fa-solid fa-play"></i> <span>暫停 / 播放</span>
+        </button>
+        <button id="btn-admin-skip" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition active:scale-95 text-sm shadow">
+          <i class="fa-solid fa-forward-step"></i> <span>切換下一首</span>
+        </button>
+      </div>
+
+      <!-- 音量控制 -->
+      <div class="bg-slate-950/60 p-3 rounded-xl border border-slate-800 flex items-center gap-3">
+        <i class="fa-solid fa-volume-high text-slate-400 text-sm"></i>
+        <input id="admin-volume" type="range" min="0" max="100" value="80" class="flex-1 h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500">
+        <span id="admin-vol-label" class="text-xs font-mono font-bold text-slate-400 w-8 text-right">80%</span>
+      </div>
+    </section>
+
+    <!-- 審核專區 (Pending Approvals) -->
+    <section id="section-pending" class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-xl backdrop-blur-sm">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+          <i class="fa-solid fa-stamp"></i> 待審核點歌 (<span id="pending-count">0</span> 首)
+        </h2>
+        <span class="text-[11px] text-slate-400">開啟審核模式時需在此放行</span>
+      </div>
+
+      <div id="pending-list" class="space-y-3">
+        <div class="text-center py-6 text-slate-500 text-xs">
+          目前無等待審核的歌曲
+        </div>
+      </div>
+    </section>
+
+    <!-- 班級規則與設定 (Classroom Settings) -->
+    <section class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-xl backdrop-blur-sm space-y-4">
+      <h2 class="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+        <i class="fa-solid fa-sliders"></i> 班級守門員規則設定
+      </h2>
+
+      <!-- 單曲時長上限 -->
+      <div>
+        <label class="block text-xs text-slate-300 font-bold mb-1.5">單曲時長上限（秒 / 分鐘）：</label>
+        <select id="setting-max-duration" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500">
+          <option value="180">3 分鐘 (180秒) - 快節奏下課</option>
+          <option value="300">5 分鐘 (300秒) - 一般標準</option>
+          <option value="360" selected>6 分鐘 (360秒) - 推薦設定</option>
+          <option value="600">10 分鐘 (600秒) - 寬鬆</option>
+          <option value="0">無限制 (不建議)</option>
+        </select>
+      </div>
+
+      <!-- 每位學生待播上限 -->
+      <div>
+        <label class="block text-xs text-slate-300 font-bold mb-1.5">每位學生在佇列中最多保留幾首：</label>
+        <select id="setting-max-per-student" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500">
+          <option value="1">1 首 (全班輪流公平)</option>
+          <option value="2" selected>2 首 (推薦設定)</option>
+          <option value="3">3 首</option>
+          <option value="5">5 首</option>
+        </select>
+      </div>
+
+      <!-- 審核模式開關 -->
+      <div class="flex items-center justify-between pt-1">
+        <div>
+          <div class="text-xs font-bold text-white">點歌審核模式</div>
+          <div class="text-[11px] text-slate-400">開啟後學生點的歌需經老師按「准許」才會排入</div>
+        </div>
+        <label class="relative inline-flex items-center cursor-pointer">
+          <input id="setting-auto-approve" type="checkbox" class="sr-only peer" checked>
+          <div class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+        </label>
+      </div>
+
+      <!-- 播放順序規則 -->
+      <div>
+        <label class="block text-xs text-slate-300 font-bold mb-1.5">歌曲播放優先順序：</label>
+        <div class="grid grid-cols-2 gap-2">
+          <label class="flex items-center gap-2 p-2.5 bg-slate-800 rounded-xl border border-slate-700 cursor-pointer">
+            <input type="radio" name="playMode" value="fifo" checked class="accent-emerald-500">
+            <span class="text-xs text-slate-200 font-semibold">先點先播 (FIFO)</span>
+          </label>
+          <label class="flex items-center gap-2 p-2.5 bg-slate-800 rounded-xl border border-slate-700 cursor-pointer">
+            <input type="radio" name="playMode" value="votes" class="accent-emerald-500">
+            <span class="text-xs text-slate-200 font-semibold">按讚最高優先 (Votes)</span>
+          </label>
+        </div>
+      </div>
+
+      <button id="btn-save-settings" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl transition text-sm shadow">
+        儲存守門員規則設定
+      </button>
+    </section>
+
+    <!-- 危險操作區 -->
+    <section class="bg-red-950/20 border border-red-500/30 rounded-2xl p-5 shadow-xl">
+      <h2 class="text-xs font-bold text-red-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+        <i class="fa-solid fa-triangle-exclamation"></i> 快捷清空操作
+      </h2>
+      <p class="text-[11px] text-slate-400 mb-3">若下課時間結束或欲重置今日廣播，可一鍵清空所有待播清單。</p>
+      <button id="btn-admin-clear" class="w-full bg-red-600/80 hover:bg-red-600 text-white font-bold py-2.5 rounded-xl transition text-sm">
+        一鍵清空所有待播清單
+      </button>
+    </section>
+
+  </main>
+
+  <script>
+    const socket = io();
+    let adminPassword = localStorage.getItem('jukebox_admin_pwd') || 'admin888';
+
+    // DOM 節點
+    const loginModal = document.getElementById('login-modal');
+    const pwdInput = document.getElementById('pwd-input');
+    const btnLogin = document.getElementById('btn-login');
+
+    const adminCurrentThumb = document.getElementById('admin-current-thumb');
+    const adminCurrentTitle = document.getElementById('admin-current-title');
+    const adminCurrentRequester = document.getElementById('admin-current-requester');
+    const btnAdminPlayPause = document.getElementById('btn-admin-play-pause');
+    const btnAdminSkip = document.getElementById('btn-admin-skip');
+    const adminVolume = document.getElementById('admin-volume');
+    const adminVolLabel = document.getElementById('admin-vol-label');
+    const btnAdminClear = document.getElementById('btn-admin-clear');
+
+    const pendingCount = document.getElementById('pending-count');
+    const pendingList = document.getElementById('pending-list');
+
+    const settingMaxDuration = document.getElementById('setting-max-duration');
+    const settingMaxPerStudent = document.getElementById('setting-max-per-student');
+    const settingAutoApprove = document.getElementById('setting-auto-approve');
+    const btnSaveSettings = document.getElementById('btn-save-settings');
+
+    // 驗證登入
+    function checkLogin() {
+      if (adminPassword) {
+        pwdInput.value = adminPassword;
+        // 自動嘗試登入
+        loginModal.classList.add('hidden');
+      }
+    }
+    checkLogin();
+
+    btnLogin.addEventListener('click', () => {
+      const pwd = pwdInput.value.trim();
+      if (!pwd) return alert('請輸入密碼');
+      adminPassword = pwd;
+      localStorage.setItem('jukebox_admin_pwd', pwd);
+      loginModal.classList.add('hidden');
+    });
+
+    // 實體播放控制
+    btnAdminPlayPause.addEventListener('click', () => {
+      socket.emit('admin_action', {
+        password: adminPassword,
+        action: 'play_pause',
+        payload: {}
+      });
+    });
+
+    btnAdminSkip.addEventListener('click', () => {
+      socket.emit('admin_action', {
+        password: adminPassword,
+        action: 'skip'
+      }, (res) => {
+        if (!res.success) alert(res.message);
+      });
+    });
+
+    adminVolume.addEventListener('input', (e) => {
+      const vol = parseInt(e.target.value, 10);
+      adminVolLabel.textContent = `${vol}%`;
+      socket.emit('admin_action', {
+        password: adminPassword,
+        action: 'set_volume',
+        payload: { volume: vol }
+      });
+    });
+
+    btnAdminClear.addEventListener('click', () => {
+      if (confirm('確定要清空待播清單中的所有歌曲嗎？')) {
+        socket.emit('admin_action', {
+          password: adminPassword,
+          action: 'clear_queue'
+        }, (res) => {
+          alert(res.message);
+        });
+      }
+    });
+
+    // 儲存設定
+    btnSaveSettings.addEventListener('click', () => {
+      const maxDuration = settingMaxDuration.value;
+      const maxActivePerStudent = settingMaxPerStudent.value;
+      const autoApprove = settingAutoApprove.checked;
+      const playMode = document.querySelector('input[name="playMode"]:checked').value;
+
+      socket.emit('admin_action', {
+        password: adminPassword,
+        action: 'update_settings',
+        payload: {
+          maxDuration,
+          maxActivePerStudent,
+          autoApprove,
+          playMode
+        }
+      }, (res) => {
+        if (res.success) {
+          alert('班級守門員規則已成功更新！');
+        } else {
+          alert('更新失敗: ' + res.message);
+        }
+      });
+    });
+
+    // 審核功能
+    window.approveSong = function(songId) {
+      socket.emit('admin_action', {
+        password: adminPassword,
+        action: 'approve_song',
+        payload: { songId }
+      });
+    };
+
+    window.rejectSong = function(songId) {
+      if (confirm('確定要拒絕這首點播嗎？')) {
+        socket.emit('admin_action', {
+          password: adminPassword,
+          action: 'reject_song',
+          payload: { songId }
+        });
+      }
+    };
+
+    function renderPending(items) {
+      const pending = items || [];
+      pendingCount.textContent = pending.length;
+
+      if (pending.length === 0) {
+        pendingList.innerHTML = `
+          <div class="text-center py-6 text-slate-500 text-xs">
+            目前無等待審核的歌曲
+          </div>
+        `;
+        return;
+      }
+
+      pendingList.innerHTML = pending.map((song) => `
+        <div class="bg-slate-950/80 border border-slate-800 rounded-xl p-3 flex gap-3 items-center">
+          <img src="${song.thumbnail}" class="w-16 h-12 rounded-lg object-cover border border-slate-800 flex-shrink-0" />
+          <div class="min-w-0 flex-1">
+            <h4 class="text-xs font-bold text-white truncate">${song.title}</h4>
+            <div class="text-[11px] text-slate-400 mt-0.5">👤 ${song.requester} ${song.note ? `• 「${song.note}」` : ''}</div>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <button onclick="approveSong('${song.id}')" class="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold">
+              准許
+            </button>
+            <button onclick="rejectSong('${song.id}')" class="px-2.5 py-1.5 rounded-lg bg-red-600/80 hover:bg-red-600 text-white text-xs font-bold">
+              拒絕
+            </button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // Socket.io 監聽
+    socket.on('state_update', (data) => {
+      if (data.currentSong) {
+        adminCurrentThumb.src = data.currentSong.thumbnail;
+        adminCurrentTitle.textContent = data.currentSong.title;
+        adminCurrentRequester.textContent = `點播人：${data.currentSong.requester}`;
+      } else {
+        adminCurrentThumb.src = '';
+        adminCurrentTitle.textContent = '暫無播放歌曲';
+        adminCurrentRequester.textContent = '點播人：--';
+      }
+
+      if (data.settings) {
+        settingMaxDuration.value = data.settings.maxDuration;
+        settingMaxPerStudent.value = data.settings.maxActivePerStudent;
+        settingAutoApprove.checked = data.settings.autoApprove;
+        const modeRadio = document.querySelector(`input[name="playMode"][value="${data.settings.playMode}"]`);
+        if (modeRadio) modeRadio.checked = true;
+      }
+
+      renderPending(data.pendingApproval);
+    });
+
+    socket.on('now_playing', (data) => {
+      if (data.currentSong) {
+        adminCurrentThumb.src = data.currentSong.thumbnail;
+        adminCurrentTitle.textContent = data.currentSong.title;
+        adminCurrentRequester.textContent = `點播人：${data.currentSong.requester}`;
+      } else {
+        adminCurrentThumb.src = '';
+        adminCurrentTitle.textContent = '暫無播放歌曲';
+        adminCurrentRequester.textContent = '點播人：--';
+      }
+    });
+
+    socket.on('pending_updated', (data) => {
+      renderPending(data.pendingApproval);
+    });
+  </script>
+</body>
+</html>

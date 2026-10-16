@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>學生點歌台 - 班級點播系統</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    body {
+      background: radial-gradient(circle at top, #0f172a, #020617);
+      min-height: 100vh;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .tap-highlight-transparent {
+      -webkit-tap-highlight-color: transparent;
+    }
+  </style>
+</head>
+<body class="text-slate-100 flex flex-col justify-between pb-8">
+
+  <!-- 頂部手機導覽列 -->
+  <header class="sticky top-0 z-40 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-4 py-3">
+    <div class="flex items-center justify-between max-w-lg mx-auto">
+      <div class="flex items-center gap-2.5">
+        <div class="w-8 h-8 rounded-lg bg-pink-500/20 border border-pink-500/40 flex items-center justify-center text-pink-400">
+          <i class="fa-solid fa-music text-sm"></i>
+        </div>
+        <div>
+          <h1 class="text-sm font-bold text-white tracking-tight flex items-center gap-1.5">
+            <span>學生點歌台</span>
+            <span id="conn-pill" class="text-[10px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-1.5 py-0.2 rounded-full">連線正常</span>
+          </h1>
+          <p class="text-[11px] text-slate-400">大螢幕同步播放中</p>
+        </div>
+      </div>
+
+      <!-- 當前播放小膠囊 -->
+      <div id="mini-now-playing" class="text-right max-w-[150px] truncate hidden">
+        <span class="text-[10px] font-bold text-indigo-400 block">🎵 正播：</span>
+        <span id="mini-title" class="text-xs text-slate-200 truncate block font-medium">歌曲名稱</span>
+      </div>
+    </div>
+
+    <!-- 頁籤選單 -->
+    <nav class="flex border-t border-slate-800/80 mt-2.5 pt-2 max-w-lg mx-auto gap-2 text-xs font-bold">
+      <button id="tab-btn-request" class="flex-1 py-1.5 rounded-xl bg-pink-600 text-white flex items-center justify-center gap-1.5 transition-all">
+        <i class="fa-solid fa-plus-circle"></i> 我要點歌
+      </button>
+      <button id="tab-btn-queue" class="flex-1 py-1.5 rounded-xl bg-slate-800 text-slate-400 flex items-center justify-center gap-1.5 transition-all">
+        <i class="fa-solid fa-list-ol"></i> 排隊清單 <span id="tab-queue-count" class="bg-slate-700 text-slate-300 px-1.5 py-0.2 rounded-full text-[10px]">0</span>
+      </button>
+      <button id="tab-btn-my" class="flex-1 py-1.5 rounded-xl bg-slate-800 text-slate-400 flex items-center justify-center gap-1.5 transition-all">
+        <i class="fa-solid fa-user-check"></i> 我的點播
+      </button>
+    </nav>
+  </header>
+
+  <!-- 主內容容器 -->
+  <main class="flex-1 px-4 py-4 max-w-lg mx-auto w-full">
+
+    <!-- 頁籤一：點歌表單 (Tab: Request) -->
+    <section id="panel-request" class="space-y-4">
+
+      <!-- 個人資訊卡片 -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-lg backdrop-blur-sm">
+        <h2 class="text-xs font-bold text-indigo-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+          <i class="fa-solid fa-id-card"></i> 點播人資訊
+        </h2>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs text-slate-400 mb-1">班級座號 <span class="text-pink-400">*</span></label>
+            <input id="input-seat" type="number" min="1" max="60" placeholder="例如: 15" class="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-pink-500 font-bold" />
+          </div>
+          <div>
+            <label class="block text-xs text-slate-400 mb-1">暱稱或稱呼（選填）</label>
+            <input id="input-nickname" type="text" placeholder="例如: 小明" maxlength="10" class="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-pink-500" />
+          </div>
+        </div>
+      </div>
+
+      <!-- YouTube 網址與即時預覽 -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-lg backdrop-blur-sm">
+        <div class="flex items-center justify-between mb-2">
+          <label class="text-xs font-bold text-pink-400 uppercase tracking-wider flex items-center gap-1.5">
+            <i class="fa-brands fa-youtube text-red-500"></i> YouTube 網址 <span class="text-pink-400">*</span>
+          </label>
+          <button id="btn-paste" type="button" class="text-xs text-slate-400 hover:text-white bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-700 flex items-center gap-1">
+            <i class="fa-regular fa-clipboard"></i> 貼上剪貼簿
+          </button>
+        </div>
+
+        <input id="input-url" type="text" placeholder="貼上 YouTube 歌曲或 Shorts 網址" class="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-pink-500 font-mono" />
+
+        <!-- 即時預覽卡片 -->
+        <div id="preview-card" class="mt-3 hidden bg-slate-950/80 border border-slate-800 rounded-xl p-3 flex gap-3 items-center">
+          <img id="preview-thumb" src="" alt="縮圖" class="w-20 h-14 object-cover rounded-lg border border-slate-800 flex-shrink-0" />
+          <div class="min-w-0 flex-1">
+            <h4 id="preview-title" class="text-xs font-bold text-white truncate leading-snug">歌曲名稱</h4>
+            <p id="preview-author" class="text-[11px] text-slate-400 truncate mt-0.5">創作者</p>
+            <div id="preview-badge" class="mt-1 inline-flex text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300">
+              時長: --:--
+            </div>
+          </div>
+        </div>
+        <div id="preview-loading" class="mt-2 text-xs text-slate-400 hidden flex items-center gap-2">
+          <i class="fa-solid fa-spinner animate-spin text-pink-500"></i> 正在解析 YouTube 歌曲資訊...
+        </div>
+      </div>
+
+      <!-- 點播寄語 / 給全班的一句話 -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-lg backdrop-blur-sm">
+        <label class="block text-xs font-bold text-purple-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+          <i class="fa-solid fa-comment-dots"></i> 點播寄語（會在大螢幕醒目播放）
+        </label>
+        <textarea id="input-note" rows="2" maxlength="60" placeholder="寫一句話給全班或好朋友吧！(限 60 字)" class="w-full bg-slate-800/80 border border-slate-700 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-purple-500 leading-relaxed"></textarea>
+
+        <!-- 快速寄語靈感標籤 -->
+        <div class="flex flex-wrap gap-1.5 mt-2">
+          <button type="button" class="quick-tag text-[11px] bg-slate-800 text-slate-300 px-2.5 py-1 rounded-lg border border-slate-700 hover:border-pink-500">
+            🎉 祝大家段考拿高分！
+          </button>
+          <button type="button" class="quick-tag text-[11px] bg-slate-800 text-slate-300 px-2.5 py-1 rounded-lg border border-slate-700 hover:border-pink-500">
+            🎂 祝壽星生日快樂！
+          </button>
+          <button type="button" class="quick-tag text-[11px] bg-slate-800 text-slate-300 px-2.5 py-1 rounded-lg border border-slate-700 hover:border-pink-500">
+            ☕ 下課放鬆聽好歌～
+          </button>
+          <button type="button" class="quick-tag text-[11px] bg-slate-800 text-slate-300 px-2.5 py-1 rounded-lg border border-slate-700 hover:border-pink-500">
+            💪 精神百倍打掃乾淨！
+          </button>
+        </div>
+      </div>
+
+      <!-- 送出按鈕 -->
+      <button id="btn-submit-song" class="w-full bg-gradient-to-r from-pink-500 via-rose-500 to-indigo-600 hover:from-pink-600 hover:to-indigo-700 text-white font-extrabold py-3.5 px-6 rounded-2xl shadow-xl transition-transform active:scale-95 flex items-center justify-center gap-2 text-base">
+        <i class="fa-solid fa-paper-plane"></i>
+        <span>送出點播給全班聽</span>
+      </button>
+
+      <p class="text-center text-[11px] text-slate-500 leading-normal">
+        班級守則：單曲長度上限 6 分鐘 · 尊重智慧財產權與健康內容
+      </p>
+
+    </section>
+
+    <!-- 頁籤二：即時排隊與投票 (Tab: Queue) -->
+    <section id="panel-queue" class="space-y-3 hidden">
+      <div class="flex items-center justify-between pb-1">
+        <h2 class="text-sm font-bold text-white flex items-center gap-1.5">
+          <i class="fa-solid fa-fire text-amber-400"></i> 現正排隊中歌曲
+        </h2>
+        <span class="text-xs text-slate-400">點 👍 為喜歡的歌按讚投票</span>
+      </div>
+
+      <div id="live-queue-list" class="space-y-2.5">
+        <!-- JS 動態產生 -->
+      </div>
+    </section>
+
+    <!-- 頁籤三：我的點播紀錄 (Tab: My Songs) -->
+    <section id="panel-my" class="space-y-3 hidden">
+      <h2 class="text-sm font-bold text-white flex items-center gap-1.5 pb-1">
+        <i class="fa-solid fa-clock-rotate-left text-indigo-400"></i> 我在此裝置點播的歌曲
+      </h2>
+
+      <div id="my-songs-list" class="space-y-2.5">
+        <!-- JS 動態產生 -->
+      </div>
+    </section>
+
+  </main>
+
+  <!-- 浮動通知 Toast -->
+  <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900 border border-slate-700 text-white px-5 py-3 rounded-2xl shadow-2xl transition-all duration-300 opacity-0 pointer-events-none text-xs md:text-sm font-bold flex items-center gap-2.5 max-w-[90vw]">
+    <i id="toast-icon" class="fa-solid fa-circle-check text-emerald-400 text-base"></i>
+    <span id="toast-text">通知內容</span>
+  </div>
+
+  <script>
+    // 初始化 Socket.io 與用戶識別碼 (Client ID)
+    const socket = io();
+    let myClientId = localStorage.getItem('jukebox_client_id');
+    if (!myClientId) {
+      myClientId = 'client_' + Math.random().toString(36).substr(2, 9);
+      localStorage.setItem('jukebox_client_id', myClientId);
+    }
+
+    // 歷史本地點歌紀錄
+    let myHistory = JSON.parse(localStorage.getItem('jukebox_my_history') || '[]');
+    let currentQueue = [];
+    let currentNowPlaying = null;
+
+    // DOM 元素
+    const inputSeat = document.getElementById('input-seat');
+    const inputNickname = document.getElementById('input-nickname');
+    const inputUrl = document.getElementById('input-url');
+    const inputNote = document.getElementById('input-note');
+    const btnPaste = document.getElementById('btn-paste');
+    const btnSubmit = document.getElementById('btn-submit-song');
+    const previewCard = document.getElementById('preview-card');
+    const previewThumb = document.getElementById('preview-thumb');
+    const previewTitle = document.getElementById('preview-title');
+    const previewAuthor = document.getElementById('preview-author');
+    const previewBadge = document.getElementById('preview-badge');
+    const previewLoading = document.getElementById('preview-loading');
+    const toast = document.getElementById('toast');
+    const toastText = document.getElementById('toast-text');
+    const toastIcon = document.getElementById('toast-icon');
+
+    // 頁籤切換
+    const tabBtnRequest = document.getElementById('tab-btn-request');
+    const tabBtnQueue = document.getElementById('tab-btn-queue');
+    const tabBtnMy = document.getElementById('tab-btn-my');
+    const panelRequest = document.getElementById('panel-request');
+    const panelQueue = document.getElementById('panel-queue');
+    const panelMy = document.getElementById('panel-my');
+    const tabQueueCount = document.getElementById('tab-queue-count');
+    const liveQueueList = document.getElementById('live-queue-list');
+    const mySongsList = document.getElementById('my-songs-list');
+    const miniNowPlaying = document.getElementById('mini-now-playing');
+    const miniTitle = document.getElementById('mini-title');
+
+    // 自動填入上次記憶的座號與暱稱
+    inputSeat.value = localStorage.getItem('jukebox_seat') || '';
+    inputNickname.value = localStorage.getItem('jukebox_nickname') || '';
+
+    // 快速填入寄語標籤
+    document.querySelectorAll('.quick-tag').forEach(btn => {
+      btn.addEventListener('click', () => {
+        inputNote.value = btn.textContent.trim();
+      });
+    });
+
+    // 貼上剪貼簿
+    btnPaste.addEventListener('click', async () => {
+      try {
+        if (navigator.clipboard && navigator.clipboard.readText) {
+          const text = await navigator.clipboard.readText();
+          inputUrl.value = text.trim();
+          handleUrlPreview(text.trim());
+        } else {
+          showToast('請手動長按輸入框貼上網址', 'info');
+        }
+      } catch (err) {
+        showToast('請手動貼上網址', 'info');
+      }
+    });
+
+    // 監聽網址輸入以提供即時預覽
+    let debounceTimer = null;
+    inputUrl.addEventListener('input', (e) => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        handleUrlPreview(e.target.value.trim());
+      }, 500);
+    });
+
+    function handleUrlPreview(url) {
+      if (!url) {
+        previewCard.classList.add('hidden');
+        previewLoading.classList.add('hidden');
+        return;
+      }
+      previewLoading.classList.remove('hidden');
+      previewCard.classList.add('hidden');
+
+      fetch(`/api/preview?url=${encodeURIComponent(url)}`)
+        .then(res => res.json())
+        .then(data => {
+          previewLoading.classList.add('hidden');
+          if (data.title) {
+            previewTitle.textContent = data.title;
+            previewAuthor.textContent = data.author || '';
+            previewThumb.src = data.thumbnail;
+
+            const mins = Math.floor(data.duration / 60);
+            const secs = data.duration % 60;
+            const timeStr = data.duration > 0 ? `${mins}分${secs}秒` : '未知時長';
+
+            if (data.duration > 360) {
+              previewBadge.className = 'mt-1 inline-flex text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-500/20 text-red-300 border border-red-500/40';
+              previewBadge.textContent = `⚠️ 時長: ${timeStr} (超過班級6分鐘限制)`;
+            } else {
+              previewBadge.className = 'mt-1 inline-flex text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300';
+              previewBadge.textContent = `時長: ${timeStr}`;
+            }
+            previewCard.classList.remove('hidden');
+          }
+        })
+        .catch(() => {
+          previewLoading.classList.add('hidden');
+        });
+    }
+
+    // 格式化時間
+    function formatTime(seconds) {
+      if (!seconds) return '00:00';
+      const mins = Math.floor(seconds / 60);
+      const secs = Math.floor(seconds % 60);
+      return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    // 送出點歌
+    btnSubmit.addEventListener('click', () => {
+      const seat = inputSeat.value.trim();
+      const nickname = inputNickname.value.trim();
+      const url = inputUrl.value.trim();
+      const note = inputNote.value.trim();
+
+      if (!seat) {
+        showToast('請填寫您的班級座號', 'warning');
+        inputSeat.focus();
+        return;
+      }
+
+      if (!url) {
+        showToast('請貼上 YouTube 影片網址', 'warning');
+        inputUrl.focus();
+        return;
+      }
+
+      // 記憶座號與暱稱
+      localStorage.setItem('jukebox_seat', seat);
+      localStorage.setItem('jukebox_nickname', nickname);
+
+      btnSubmit.disabled = true;
+      btnSubmit.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i> <span>點播傳送中...</span>';
+
+      socket.emit('request_song', {
+        seat,
+        nickname,
+        url,
+        note,
+        clientId: myClientId
+      }, (res) => {
+        btnSubmit.disabled = false;
+        btnSubmit.innerHTML = '<i class="fa-solid fa-paper-plane"></i> <span>送出點播給全班聽</span>';
+
+        if (res.success) {
+          showToast(res.message, 'success');
+          inputUrl.value = '';
+          inputNote.value = '';
+          previewCard.classList.add('hidden');
+
+          // 紀錄至個人歷史
+          if (res.song) {
+            myHistory.unshift(res.song);
+            if (myHistory.length > 20) myHistory.pop();
+            localStorage.setItem('jukebox_my_history', JSON.stringify(myHistory));
+            renderMySongs();
+          }
+
+          // 自動切到清單頁面
+          switchTab('queue');
+        } else {
+          showToast(res.message, 'error');
+        }
+      });
+    });
+
+    // 頁籤導覽控制
+    function switchTab(tab) {
+      tabBtnRequest.className = tab === 'request' ? 'flex-1 py-1.5 rounded-xl bg-pink-600 text-white flex items-center justify-center gap-1.5 transition-all' : 'flex-1 py-1.5 rounded-xl bg-slate-800 text-slate-400 flex items-center justify-center gap-1.5 transition-all';
+      tabBtnQueue.className = tab === 'queue' ? 'flex-1 py-1.5 rounded-xl bg-pink-600 text-white flex items-center justify-center gap-1.5 transition-all' : 'flex-1 py-1.5 rounded-xl bg-slate-800 text-slate-400 flex items-center justify-center gap-1.5 transition-all';
+      tabBtnMy.className = tab === 'my' ? 'flex-1 py-1.5 rounded-xl bg-pink-600 text-white flex items-center justify-center gap-1.5 transition-all' : 'flex-1 py-1.5 rounded-xl bg-slate-800 text-slate-400 flex items-center justify-center gap-1.5 transition-all';
+
+      panelRequest.classList.toggle('hidden', tab !== 'request');
+      panelQueue.classList.toggle('hidden', tab !== 'queue');
+      panelMy.classList.toggle('hidden', tab !== 'my');
+
+      if (tab === 'queue') renderQueue();
+      if (tab === 'my') renderMySongs();
+    }
+
+    tabBtnRequest.addEventListener('click', () => switchTab('request'));
+    tabBtnQueue.addEventListener('click', () => switchTab('queue'));
+    tabBtnMy.addEventListener('click', () => switchTab('my'));
+
+    // 渲染排隊清單
+    function renderQueue() {
+      tabQueueCount.textContent = currentQueue.length;
+
+      if (!currentNowPlaying && currentQueue.length === 0) {
+        liveQueueList.innerHTML = `
+          <div class="text-center py-12 text-slate-500 text-xs">
+            <i class="fa-solid fa-music text-3xl mb-2 text-slate-600 block"></i>
+            目前排隊清單空空的～<br/>快來當全班第一個點歌的人吧！
+          </div>
+        `;
+        return;
+      }
+
+      let html = '';
+
+      // 當前播放卡片
+      if (currentNowPlaying) {
+        html += `
+          <div class="p-3.5 rounded-2xl bg-indigo-950/60 border border-indigo-500/40 shadow-lg">
+            <div class="flex items-center justify-between text-[11px] font-bold text-pink-400 mb-2">
+              <span class="flex items-center gap-1.5">
+                <span class="w-2 h-2 rounded-full bg-pink-400 animate-ping"></span> 正在大螢幕播放中
+              </span>
+              <span class="text-indigo-300">👤 ${currentNowPlaying.requester}</span>
+            </div>
+            <div class="flex gap-3 items-center">
+              <img src="${currentNowPlaying.thumbnail}" class="w-16 h-12 rounded-lg object-cover border border-indigo-500/30 flex-shrink-0" />
+              <div class="min-w-0 flex-1">
+                <h4 class="text-xs font-bold text-white truncate">${currentNowPlaying.title}</h4>
+                <p class="text-[11px] text-slate-300 truncate mt-0.5">${currentNowPlaying.note ? `「${currentNowPlaying.note}」` : '祝福全班下課愉快！'}</p>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      // 排隊中歌曲
+      if (currentQueue.length > 0) {
+        html += `<div class="text-[11px] font-bold text-slate-400 pt-1">接續待播（${currentQueue.length} 首）：</div>`;
+        html += currentQueue.map((song, index) => {
+          const hasVoted = song.votes && song.votes.includes(myClientId);
+          const voteCount = song.votes ? song.votes.length : 0;
+          return `
+            <div class="flex items-center gap-3 p-3 rounded-2xl bg-slate-900/80 border border-slate-800 shadow">
+              <span class="w-5 text-center font-mono font-bold text-xs text-indigo-400">${index + 1}</span>
+              <img src="${song.thumbnail}" class="w-14 h-10 object-cover rounded-lg border border-slate-800 flex-shrink-0" />
+              <div class="flex-1 min-w-0 pr-1">
+                <h4 class="text-xs font-bold text-white truncate">${song.title}</h4>
+                <div class="flex items-center gap-2 text-[10px] text-slate-400 mt-0.5">
+                  <span class="text-pink-300 font-medium">👤 ${song.requester}</span>
+                  ${song.duration ? `<span>• ${formatTime(song.duration)}</span>` : ''}
+                </div>
+              </div>
+              <!-- 按讚按鈕 -->
+              <button onclick="toggleUpvote('${song.id}')" class="flex items-center gap-1 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all ${hasVoted ? 'bg-pink-500 text-white border-pink-400 shadow-sm' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}">
+                <i class="fa-solid fa-thumbs-up text-xs"></i>
+                <span>${voteCount}</span>
+              </button>
+            </div>
+          `;
+        }).join('');
+      }
+
+      liveQueueList.innerHTML = html;
+    }
+
+    // 按讚互動
+    window.toggleUpvote = function(songId) {
+      socket.emit('upvote_song', { songId, voterId: myClientId }, (res) => {
+        if (!res.success) showToast(res.message, 'warning');
+      });
+    };
+
+    // 渲染我的點播
+    function renderMySongs() {
+      if (myHistory.length === 0) {
+        mySongsList.innerHTML = `
+          <div class="text-center py-12 text-slate-500 text-xs">
+            您尚未在此手機點過歌曲喔！
+          </div>
+        `;
+        return;
+      }
+
+      mySongsList.innerHTML = myHistory.map((song) => {
+        // 比對目前狀態
+        let statusBadge = '<span class="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full">已播畢</span>';
+        if (currentNowPlaying && currentNowPlaying.id === song.id) {
+          statusBadge = '<span class="text-[10px] bg-pink-500/20 text-pink-400 border border-pink-500/30 px-2 py-0.5 rounded-full font-bold animate-pulse">正在大螢幕播放中</span>';
+        } else {
+          const qIndex = currentQueue.findIndex(s => s.id === song.id);
+          if (qIndex !== -1) {
+            statusBadge = `<span class="text-[10px] bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 px-2 py-0.5 rounded-full font-bold">排隊中 (第 ${qIndex + 1} 位)</span>`;
+          }
+        }
+
+        return `
+          <div class="flex items-center gap-3 p-3 rounded-2xl bg-slate-900/80 border border-slate-800 shadow">
+            <img src="${song.thumbnail}" class="w-14 h-10 object-cover rounded-lg border border-slate-800 flex-shrink-0" />
+            <div class="flex-1 min-w-0 pr-1">
+              <h4 class="text-xs font-bold text-white truncate">${song.title}</h4>
+              <p class="text-[11px] text-slate-400 truncate mt-0.5">${song.note ? `寄語: ${song.note}` : '無寄語'}</p>
+            </div>
+            <div>${statusBadge}</div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // 顯示 Toast 通知
+    let toastTimer = null;
+    function showToast(msg, type = 'success') {
+      toastText.textContent = msg;
+      if (type === 'success') {
+        toastIcon.className = 'fa-solid fa-circle-check text-emerald-400 text-base';
+      } else if (type === 'error') {
+        toastIcon.className = 'fa-solid fa-circle-xmark text-red-400 text-base';
+      } else if (type === 'warning') {
+        toastIcon.className = 'fa-solid fa-triangle-exclamation text-amber-400 text-base';
+      } else {
+        toastIcon.className = 'fa-solid fa-circle-info text-indigo-400 text-base';
+      }
+
+      toast.style.opacity = '1';
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        toast.style.opacity = '0';
+      }, 3500);
+    }
+
+    // Socket.io 監聽事件
+    socket.on('state_update', (data) => {
+      currentQueue = data.queue || [];
+      currentNowPlaying = data.currentSong || null;
+      updateMiniPlayer();
+      renderQueue();
+    });
+
+    socket.on('queue_updated', (data) => {
+      currentQueue = data.queue || [];
+      renderQueue();
+      if (data.message) showToast(data.message, 'info');
+    });
+
+    socket.on('now_playing', (data) => {
+      currentNowPlaying = data.currentSong;
+      currentQueue = data.queue || [];
+      updateMiniPlayer();
+      renderQueue();
+      renderMySongs();
+    });
+
+    function updateMiniPlayer() {
+      if (currentNowPlaying) {
+        miniNowPlaying.classList.remove('hidden');
+        miniTitle.textContent = currentNowPlaying.title;
+      } else {
+        miniNowPlaying.classList.add('hidden');
+      }
+    }
+  </script>
+</body>
+</html>
