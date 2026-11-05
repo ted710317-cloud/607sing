@@ -109,21 +109,27 @@
   </main>
 
   <!-- Live Connection Info & QR Code preview -->
-  <section class="max-w-xl mx-auto w-full bg-slate-900/80 border border-slate-800 rounded-2xl p-5 mt-8 backdrop-blur-md text-center shadow-lg">
-    <div class="flex items-center justify-center gap-2 text-indigo-400 font-bold mb-3 text-sm">
+  <section class="max-w-2xl mx-auto w-full bg-slate-900/80 border border-slate-800 rounded-2xl p-6 mt-8 backdrop-blur-md text-center shadow-lg">
+    <div class="flex items-center justify-center gap-2 text-indigo-400 font-bold mb-4 text-sm">
       <i class="fa-solid fa-wifi animate-pulse"></i> 班級雲端連線資訊
     </div>
-    <div class="flex flex-col sm:flex-row items-center justify-center gap-5">
-      <div id="qrcode-box" class="bg-white p-2 rounded-xl shadow-md inline-block"></div>
-      <div class="text-left text-sm space-y-2">
-        <p class="text-slate-300">
-          <span class="text-slate-500 text-xs block">學生點歌網址（任何網路皆可直接掃描開啟）：</span>
-          <a id="student-link" href="request.html" class="text-indigo-400 font-mono font-bold hover:underline break-all">
-            載入中...
-          </a>
-        </p>
-        <p class="text-xs text-slate-400">
-          💡 提示：老師直接用電腦開啟<strong>「大螢幕播放端」</strong>，右上角也會常駐此 QR Code 供全班隨時掃描！
+    <div class="flex flex-col sm:flex-row items-center justify-center gap-6">
+      <div id="qrcode-box" class="bg-white p-3 rounded-2xl shadow-xl inline-flex items-center justify-center"></div>
+      <div class="text-left text-sm space-y-3 flex-1">
+        <div>
+          <span class="text-slate-400 text-xs block mb-1">學生點歌網址（任何手機/平板相機掃描直達）：</span>
+          <div class="flex items-center gap-2 bg-slate-950/80 border border-slate-800 rounded-xl p-2.5">
+            <a id="student-link" href="request.html" class="text-indigo-400 font-mono text-xs font-bold hover:underline break-all flex-1">
+              載入中...
+            </a>
+            <button id="btn-copy-link" class="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold shrink-0 transition flex items-center gap-1">
+              <i class="fa-regular fa-copy"></i>
+              <span id="copy-text">複製</span>
+            </button>
+          </div>
+        </div>
+        <p class="text-xs text-slate-400 leading-relaxed">
+          💡 提示：老師直接用電腦開啟<strong>「大螢幕播放端」</strong>，右上角會常駐 QR Code，點擊或按鍵盤 <kbd class="bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700 font-mono text-[10px] text-slate-300">Q</kbd> 還可一鍵全螢幕放大投影，供全班同學遠距掃描！
         </p>
       </div>
     </div>
@@ -145,14 +151,50 @@
     linkEl.href = studentUrl;
     linkEl.textContent = studentUrl;
 
-    // 即時繪製 QR Code
+    // 繪製高解析度 QR Code (160x160，高容錯率 H，容易對焦掃描)
     new QRCode(document.getElementById('qrcode-box'), {
       text: studentUrl,
-      width: 120,
-      height: 120,
+      width: 160,
+      height: 160,
       colorDark: '#0f172a',
       colorLight: '#ffffff',
-      correctLevel: QRCode.CorrectLevel.M
+      correctLevel: QRCode.CorrectLevel.H
+    });
+
+    // 複製網址按鈕
+    const btnCopy = document.getElementById('btn-copy-link');
+    const copyText = document.getElementById('copy-text');
+    btnCopy.addEventListener('click', () => {
+      const onSuccess = () => {
+        copyText.textContent = '已複製！';
+        btnCopy.classList.remove('bg-indigo-600', 'hover:bg-indigo-500');
+        btnCopy.classList.add('bg-emerald-600', 'hover:bg-emerald-500');
+        setTimeout(() => {
+          copyText.textContent = '複製';
+          btnCopy.classList.remove('bg-emerald-600', 'hover:bg-emerald-500');
+          btnCopy.classList.add('bg-indigo-600', 'hover:bg-indigo-500');
+        }, 2000);
+      };
+
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(studentUrl).then(onSuccess).catch(() => {
+          const temp = document.createElement('input');
+          temp.value = studentUrl;
+          document.body.appendChild(temp);
+          temp.select();
+          document.execCommand('copy');
+          document.body.removeChild(temp);
+          onSuccess();
+        });
+      } else {
+        const temp = document.createElement('input');
+        temp.value = studentUrl;
+        document.body.appendChild(temp);
+        temp.select();
+        document.execCommand('copy');
+        document.body.removeChild(temp);
+        onSuccess();
+      }
     });
   </script>
 </body>

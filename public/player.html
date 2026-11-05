@@ -92,17 +92,20 @@
       </div>
     </div>
 
-    <!-- 右側點歌 QR Code 卡片 -->
-    <div class="flex items-center gap-4 bg-slate-800/80 border border-slate-700/80 rounded-2xl p-2.5 px-4 shadow-xl backdrop-blur-md">
-      <div id="qrcode-box" class="bg-white p-1 rounded-xl shadow flex items-center justify-center"></div>
+    <!-- 右側點歌 QR Code 卡片 (可點擊全螢幕放大投影) -->
+    <div id="header-qr-card" class="cursor-pointer group flex items-center gap-3 bg-slate-800/90 hover:bg-slate-800 border border-slate-700/80 hover:border-pink-500/60 rounded-2xl p-2 px-3 shadow-xl backdrop-blur-md transition-all hover:scale-[1.02]" title="點擊放大 QR 碼供全班投影掃描 (快速鍵: Q)">
+      <div id="qrcode-box" class="bg-white p-1 rounded-xl shadow flex items-center justify-center shrink-0"></div>
       <div class="text-left hidden sm:block">
-        <div class="text-[11px] font-bold text-pink-400 uppercase tracking-wider flex items-center gap-1.5">
+        <div class="text-xs font-bold text-pink-400 uppercase tracking-wider flex items-center gap-1.5">
           <i class="fa-solid fa-qrcode"></i> 掃描 QR 碼點歌
+          <span class="text-[10px] bg-pink-500/20 text-pink-300 border border-pink-500/40 px-1.5 py-0.5 rounded font-normal group-hover:bg-pink-500 group-hover:text-white transition">
+            <i class="fa-solid fa-magnifying-glass-plus mr-0.5"></i>點擊放大
+          </span>
         </div>
-        <div id="student-url-text" class="text-xs font-mono font-bold text-slate-200 mt-1 max-w-[200px] truncate">
+        <div id="student-url-text" class="text-xs font-mono font-bold text-slate-200 mt-1 max-w-[190px] truncate">
           載入網址中...
         </div>
-        <div class="text-[11px] text-slate-400 mt-0.5">免登入 · 貼網址即播</div>
+        <div class="text-[11px] text-slate-400 mt-0.5">免登入 · 手機平板即掃即點</div>
       </div>
     </div>
   </header>
@@ -256,10 +259,15 @@
       <span class="flex items-center gap-1"><kbd class="bg-slate-800 px-2 py-0.5 rounded border border-slate-700 font-mono text-[10px]">空白鍵</kbd> 暫停/播放</span>
       <span class="flex items-center gap-1"><kbd class="bg-slate-800 px-2 py-0.5 rounded border border-slate-700 font-mono text-[10px]">N</kbd> 下一首</span>
       <span class="flex items-center gap-1"><kbd class="bg-slate-800 px-2 py-0.5 rounded border border-slate-700 font-mono text-[10px]">M</kbd> 靜音</span>
+      <span class="flex items-center gap-1"><kbd class="bg-slate-800 px-2 py-0.5 rounded border border-slate-700 font-mono text-[10px]">Q</kbd> 放大QR碼</span>
       <span class="flex items-center gap-1"><kbd class="bg-slate-800 px-2 py-0.5 rounded border border-slate-700 font-mono text-[10px]">F</kbd> 全螢幕</span>
     </div>
 
     <div class="flex items-center gap-2">
+      <button id="btn-show-qr" class="px-3 py-2 rounded-xl bg-pink-500/20 hover:bg-pink-500 text-pink-300 hover:text-white border border-pink-500/40 text-xs font-bold flex items-center gap-1.5 transition active:scale-95 shadow" title="放大 QR Code 供全班投影掃描 (Q)">
+        <i class="fa-solid fa-qrcode text-sm"></i>
+        <span class="hidden sm:inline">放大 QR 碼</span>
+      </button>
       <button id="btn-fullscreen" class="w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center border border-slate-700 transition" title="全螢幕 (F)">
         <i class="fa-solid fa-expand text-sm"></i>
       </button>
@@ -268,6 +276,59 @@
       </a>
     </div>
   </footer>
+
+  <!-- QR Code 全螢幕放大投影彈窗 -->
+  <div id="qr-modal" class="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md hidden items-center justify-center p-4 transition-all">
+    <div class="relative bg-slate-900/95 border border-slate-700 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl flex flex-col items-center text-center animate-in fade-in zoom-in-95 duration-200">
+      
+      <!-- 關閉按鈕 -->
+      <button id="btn-close-qr-modal" class="absolute top-4 right-4 w-9 h-9 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition border border-slate-700" title="關閉 (ESC 或 Q)">
+        <i class="fa-solid fa-xmark text-lg"></i>
+      </button>
+
+      <!-- 標題與標籤 -->
+      <div class="flex items-center gap-2 mb-2">
+        <span class="px-3 py-1 rounded-full text-xs font-bold bg-pink-500/20 text-pink-300 border border-pink-500/30 flex items-center gap-1.5">
+          <i class="fa-solid fa-qrcode"></i> 學生點歌 QR Code
+        </span>
+        <span id="modal-room-badge" class="px-3 py-1 rounded-full text-xs font-mono font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+          房號: 607
+        </span>
+      </div>
+
+      <h3 class="text-xl sm:text-2xl font-black text-white mt-1 mb-2">
+        拿起手機或平板立即點歌
+      </h3>
+      <p class="text-xs sm:text-sm text-slate-400 mb-5">
+        免裝 App、免登入，開啟相機對準下方 QR 碼即可進入點播！
+      </p>
+
+      <!-- 超大高對比度 QR Code 展示框 (高容錯率 H，適應教室反光與遠距掃描) -->
+      <div class="bg-white p-4 sm:p-5 rounded-2xl shadow-2xl inline-flex items-center justify-center border-4 border-white mb-5">
+        <div id="modal-qrcode-box" class="flex items-center justify-center"></div>
+      </div>
+
+      <!-- 網址複製與直達區 -->
+      <div class="w-full bg-slate-950/80 border border-slate-800 rounded-xl p-2.5 flex items-center justify-between gap-2">
+        <span id="modal-url-text" class="text-xs font-mono text-slate-300 truncate text-left select-all pl-1">
+          載入中...
+        </span>
+        <div class="flex items-center gap-1.5 shrink-0">
+          <button id="btn-copy-modal-url" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition">
+            <i class="fa-regular fa-copy"></i>
+            <span id="copy-btn-text">複製</span>
+          </button>
+          <a id="modal-open-link" href="#" target="_blank" class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold flex items-center gap-1 transition border border-slate-700" title="在新分頁開啟">
+            <i class="fa-solid fa-arrow-up-right-from-square"></i>
+          </a>
+        </div>
+      </div>
+
+      <p class="text-[11px] text-slate-500 mt-4 flex items-center gap-1">
+        <i class="fa-regular fa-keyboard"></i> 按 <kbd class="bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700 font-mono text-[10px] text-slate-300">ESC</kbd> 或 <kbd class="bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700 font-mono text-[10px] text-slate-300">Q</kbd> 關閉
+      </p>
+    </div>
+  </div>
 
   <!-- 載入 YouTube IFrame Player API -->
   <script src="https://www.youtube.com/iframe_api"></script>
@@ -344,15 +405,107 @@
     const studentUrl = `${cleanBaseUrl}request.html?room=${roomParam}`;
     studentUrlText.textContent = studentUrl;
 
-    // 產生動態 QR Code
+    // 產生頂部列 QR Code (放大至 104x104，方便講桌或前排直接掃描)
     new QRCode(qrcodeBox, {
       text: studentUrl,
-      width: 72,
-      height: 72,
+      width: 104,
+      height: 104,
       colorDark: '#0f172a',
       colorLight: '#ffffff',
       correctLevel: QRCode.CorrectLevel.M
     });
+
+    // 彈窗與超大 QR Code 相關邏輯
+    const qrModal = document.getElementById('qr-modal');
+    const headerQrCard = document.getElementById('header-qr-card');
+    const btnShowQr = document.getElementById('btn-show-qr');
+    const btnCloseQrModal = document.getElementById('btn-close-qr-modal');
+    const modalQrcodeBox = document.getElementById('modal-qrcode-box');
+    const modalUrlText = document.getElementById('modal-url-text');
+    const modalOpenLink = document.getElementById('modal-open-link');
+    const btnCopyModalUrl = document.getElementById('btn-copy-modal-url');
+    const copyBtnText = document.getElementById('copy-btn-text');
+
+    document.getElementById('modal-room-badge').textContent = `房號: ${roomParam}`;
+    modalUrlText.textContent = studentUrl;
+    modalOpenLink.href = studentUrl;
+
+    // 產生彈窗內的超大 QR Code (260x260，使用 High 容錯率 H，適應教室投影與遠距掃描)
+    new QRCode(modalQrcodeBox, {
+      text: studentUrl,
+      width: 260,
+      height: 260,
+      colorDark: '#0f172a',
+      colorLight: '#ffffff',
+      correctLevel: QRCode.CorrectLevel.H
+    });
+
+    function openQrModal() {
+      qrModal.classList.remove('hidden');
+      qrModal.classList.add('flex');
+    }
+
+    function closeQrModal() {
+      qrModal.classList.add('hidden');
+      qrModal.classList.remove('flex');
+    }
+
+    function toggleQrModal() {
+      if (qrModal.classList.contains('hidden')) {
+        openQrModal();
+      } else {
+        closeQrModal();
+      }
+    }
+
+    if (headerQrCard) headerQrCard.addEventListener('click', openQrModal);
+    if (btnShowQr) btnShowQr.addEventListener('click', openQrModal);
+    if (btnCloseQrModal) btnCloseQrModal.addEventListener('click', closeQrModal);
+
+    // 點擊背景遮罩關閉彈窗
+    if (qrModal) {
+      qrModal.addEventListener('click', (e) => {
+        if (e.target === qrModal) {
+          closeQrModal();
+        }
+      });
+    }
+
+    // 複製點歌網址按鈕
+    if (btnCopyModalUrl) {
+      btnCopyModalUrl.addEventListener('click', () => {
+        const copyAction = () => {
+          copyBtnText.textContent = '已複製！';
+          btnCopyModalUrl.classList.remove('bg-indigo-600', 'hover:bg-indigo-500');
+          btnCopyModalUrl.classList.add('bg-emerald-600', 'hover:bg-emerald-500');
+          setTimeout(() => {
+            copyBtnText.textContent = '複製';
+            btnCopyModalUrl.classList.remove('bg-emerald-600', 'hover:bg-emerald-500');
+            btnCopyModalUrl.classList.add('bg-indigo-600', 'hover:bg-indigo-500');
+          }, 2000);
+        };
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(studentUrl).then(copyAction).catch(() => {
+            const temp = document.createElement('input');
+            temp.value = studentUrl;
+            document.body.appendChild(temp);
+            temp.select();
+            document.execCommand('copy');
+            document.body.removeChild(temp);
+            copyAction();
+          });
+        } else {
+          const temp = document.createElement('input');
+          temp.value = studentUrl;
+          document.body.appendChild(temp);
+          temp.select();
+          document.execCommand('copy');
+          document.body.removeChild(temp);
+          copyAction();
+        }
+      });
+    }
 
     // 儲存狀態至 LocalStorage 並廣播至雲端
     function saveAndBroadcast() {
@@ -874,6 +1027,11 @@
       } else if (e.code === 'KeyM') {
         e.preventDefault();
         btnMute.click();
+      } else if (e.code === 'KeyQ') {
+        e.preventDefault();
+        toggleQrModal();
+      } else if (e.code === 'Escape') {
+        closeQrModal();
       } else if (e.code === 'KeyF') {
         e.preventDefault();
         btnFullscreen.click();
