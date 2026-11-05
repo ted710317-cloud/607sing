@@ -6,7 +6,9 @@
   <title>班級音樂廣播台 - 大螢幕播放端</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script src="cloud-sync.js"></script>
   <style>
     @keyframes pulse-glow {
       0%, 100% { box-shadow: 0 0 25px rgba(99, 102, 241, 0.35); }
@@ -15,7 +17,6 @@
     .ambient-glow {
       animation: pulse-glow 4s ease-in-out infinite;
     }
-    /* 動態音波等化器動畫 */
     @keyframes eq-bounce {
       0%, 100% { height: 6px; }
       50% { height: 32px; }
@@ -33,7 +34,6 @@
       animation-play-state: paused;
       height: 6px !important;
     }
-    /* 自訂捲軸 */
     ::-webkit-scrollbar {
       width: 6px;
     }
@@ -78,7 +78,10 @@
         <h1 class="text-lg md:text-xl font-bold tracking-tight text-white flex items-center gap-2">
           <span>班級音樂廣播台</span>
           <span id="badge-status" class="text-[11px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
-            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span> 連線中
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span> <span id="status-text">雲端連線中</span>
+          </span>
+          <span id="room-badge" class="text-[11px] font-mono font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2 py-0.5 rounded-full">
+            房號: 607
           </span>
         </h1>
         <p class="text-xs text-slate-400 flex items-center gap-2">
@@ -91,9 +94,7 @@
 
     <!-- 右側點歌 QR Code 卡片 -->
     <div class="flex items-center gap-4 bg-slate-800/80 border border-slate-700/80 rounded-2xl p-2.5 px-4 shadow-xl backdrop-blur-md">
-      <div class="bg-white p-1 rounded-xl shadow">
-        <img id="qr-img" src="" alt="點歌QR" class="w-16 h-16 md:w-20 md:h-20 rounded" />
-      </div>
+      <div id="qrcode-box" class="bg-white p-1 rounded-xl shadow flex items-center justify-center"></div>
       <div class="text-left hidden sm:block">
         <div class="text-[11px] font-bold text-pink-400 uppercase tracking-wider flex items-center gap-1.5">
           <i class="fa-solid fa-qrcode"></i> 掃描 QR 碼點歌
@@ -114,7 +115,6 @@
 
       <!-- 寄語聚光燈卡片 (Spotlight Card) -->
       <div id="message-card" class="relative overflow-hidden bg-gradient-to-br from-indigo-950/60 via-slate-900/80 to-purple-950/50 border border-indigo-500/30 rounded-3xl p-6 md:p-8 backdrop-blur-xl shadow-2xl transition-all">
-        <!-- 裝飾背景光暈 -->
         <div class="absolute -top-16 -left-16 w-48 h-48 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none"></div>
         <div class="absolute -bottom-16 -right-16 w-48 h-48 bg-purple-500/20 rounded-full blur-3xl pointer-events-none"></div>
 
@@ -169,7 +169,6 @@
 
       <!-- YouTube 嵌入播放器容器 -->
       <div class="relative bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl aspect-video w-full flex items-center justify-center">
-        <!-- YouTube IFrame 容器 -->
         <div id="yt-player-container" class="w-full h-full">
           <div id="youtube-player"></div>
         </div>
@@ -217,7 +216,6 @@
 
       <!-- 佇列列表容器 -->
       <div id="queue-list" class="flex-1 overflow-y-auto py-3 space-y-3 pr-1">
-        <!-- 動態由 JS 渲染 -->
         <div class="text-center py-12 text-slate-500 text-sm">
           <i class="fa-regular fa-folder-open text-3xl mb-2 block text-slate-600"></i>
           尚無待播歌曲
@@ -238,17 +236,14 @@
   <!-- 底部懸浮老師控制列 (Master Toolbar) -->
   <footer class="sticky bottom-0 z-30 bg-slate-900/90 border-t border-slate-800 backdrop-blur-lg px-6 py-3 flex items-center justify-between shadow-2xl">
     <div class="flex items-center gap-3">
-      <!-- 播放 / 暫停 -->
       <button id="btn-toggle-play" class="w-11 h-11 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white flex items-center justify-center transition active:scale-95 shadow-md">
         <i class="fa-solid fa-pause text-base"></i>
       </button>
 
-      <!-- 切換下一首 -->
       <button id="btn-skip-song" class="w-11 h-11 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center transition active:scale-95 border border-slate-700" title="切下一首 (N)">
         <i class="fa-solid fa-forward-step text-base"></i>
       </button>
 
-      <!-- 音量控制 -->
       <div class="hidden sm:flex items-center gap-2 ml-2 bg-slate-800/80 px-3 py-2 rounded-xl border border-slate-700">
         <button id="btn-mute" class="text-slate-400 hover:text-white transition">
           <i class="fa-solid fa-volume-high text-sm"></i>
@@ -257,7 +252,6 @@
       </div>
     </div>
 
-    <!-- 鍵盤快捷鍵提示 -->
     <div class="hidden md:flex items-center gap-4 text-xs text-slate-400">
       <span class="flex items-center gap-1"><kbd class="bg-slate-800 px-2 py-0.5 rounded border border-slate-700 font-mono text-[10px]">空白鍵</kbd> 暫停/播放</span>
       <span class="flex items-center gap-1"><kbd class="bg-slate-800 px-2 py-0.5 rounded border border-slate-700 font-mono text-[10px]">N</kbd> 下一首</span>
@@ -266,12 +260,10 @@
     </div>
 
     <div class="flex items-center gap-2">
-      <!-- 全螢幕切換 -->
       <button id="btn-fullscreen" class="w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center border border-slate-700 transition" title="全螢幕 (F)">
         <i class="fa-solid fa-expand text-sm"></i>
       </button>
-      <!-- 管理設定按鈕 -->
-      <a href="/admin.html" target="_blank" class="w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center border border-slate-700 transition" title="老師管理設定">
+      <a id="admin-link" href="admin.html" target="_blank" class="w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center border border-slate-700 transition" title="老師管理設定">
         <i class="fa-solid fa-gear text-sm"></i>
       </a>
     </div>
@@ -281,21 +273,37 @@
   <script src="https://www.youtube.com/iframe_api"></script>
 
   <script>
-    // 全域變數
-    const socket = io();
+    // 取得房間號
+    const roomParam = new URLSearchParams(window.location.search).get('room') || '607';
+    document.getElementById('room-badge').textContent = `房號: ${roomParam}`;
+    document.getElementById('admin-link').href = `admin.html?room=${roomParam}`;
+
+    // 初始化雲端同步核心
+    const sync = new CloudSync({ role: 'host', room: roomParam });
+
+    // 本機狀態持久化恢復
+    const STORAGE_KEY = `jukebox_host_state_${roomParam}`;
+    let savedState = null;
+    try {
+      savedState = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    } catch(e) {}
+
+    let currentSong = savedState ? savedState.currentSong : null;
+    let queue = savedState ? (savedState.queue || []) : [];
+    let history = savedState ? (savedState.history || []) : [];
+    let pendingApproval = savedState ? (savedState.pendingApproval || []) : [];
+    let settings = savedState ? { ...sync.state.settings, ...savedState.settings } : sync.state.settings;
+
     let player = null;
     let isPlayerReady = false;
     let isPlaying = false;
-    let currentSong = null;
-    let queue = [];
     let progressInterval = null;
     let skipTimer = null;
-    let serverSettings = { maxDuration: 360, playMode: 'fifo' };
 
     // DOM 節點
     const autoplayModal = document.getElementById('autoplay-modal');
     const btnStartPlayer = document.getElementById('btn-start-player');
-    const qrImg = document.getElementById('qr-img');
+    const qrcodeBox = document.getElementById('qrcode-box');
     const studentUrlText = document.getElementById('student-url-text');
     const currentSongTitle = document.getElementById('current-song-title');
     const currentSongAuthor = document.getElementById('current-song-author');
@@ -313,6 +321,7 @@
     const errorDesc = document.getElementById('error-desc');
     const countdownText = document.getElementById('countdown-text');
     const equalizer = document.getElementById('equalizer');
+    const statusText = document.getElementById('status-text');
 
     const btnTogglePlay = document.getElementById('btn-toggle-play');
     const btnSkipSong = document.getElementById('btn-skip-song');
@@ -329,23 +338,53 @@
       return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     }
 
-    // 初始化連線資訊與 QR Code
-    fetch('/api/info')
-      .then(res => res.json())
-      .then(data => {
-        if (data.qrCodeDataUrl) qrImg.src = data.qrCodeDataUrl;
-        if (data.studentUrl) studentUrlText.textContent = data.studentUrl;
-      })
-      .catch(console.error);
+    // 計算學生端 QR Code 網址
+    const baseUrl = window.location.href.split('?')[0].replace(/player\.html$/, '');
+    const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl : baseUrl + '/';
+    const studentUrl = `${cleanBaseUrl}request.html?room=${roomParam}`;
+    studentUrlText.textContent = studentUrl;
 
-    // 啟動點擊解鎖 Autoplay
+    // 產生動態 QR Code
+    new QRCode(qrcodeBox, {
+      text: studentUrl,
+      width: 72,
+      height: 72,
+      colorDark: '#0f172a',
+      colorLight: '#ffffff',
+      correctLevel: QRCode.CorrectLevel.M
+    });
+
+    // 儲存狀態至 LocalStorage 並廣播至雲端
+    function saveAndBroadcast() {
+      const stateToBroadcast = {
+        currentSong,
+        queue,
+        history: history.slice(-20),
+        pendingApproval,
+        settings,
+        updatedAt: Date.now()
+      };
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToBroadcast));
+      } catch(e) {}
+      sync.publishState(stateToBroadcast);
+    }
+
+    // 佇列排序
+    function sortQueue() {
+      if (settings.playMode === 'votes') {
+        queue.sort((a, b) => (b.votes ? b.votes.length : 0) - (a.votes ? a.votes.length : 0));
+      }
+    }
+
+    // 點擊解鎖 Autoplay
     btnStartPlayer.addEventListener('click', () => {
       autoplayModal.style.opacity = '0';
       setTimeout(() => autoplayModal.classList.add('hidden'), 500);
       if (currentSong && player && isPlayerReady) {
         player.playVideo();
       } else if (!currentSong && queue.length > 0) {
-        socket.emit('player_next');
+        playNextSong();
       }
     });
 
@@ -373,11 +412,10 @@
       isPlayerReady = true;
       player.setVolume(parseInt(volumeSlider.value, 10));
 
-      // 若已有當前歌曲，立即載入
       if (currentSong) {
         loadSongIntoPlayer(currentSong);
       } else if (queue.length > 0) {
-        socket.emit('player_next');
+        playNextSong();
       }
     }
 
@@ -389,15 +427,11 @@
         idleScreen.classList.add('hidden');
         errorAlert.classList.add('hidden');
 
-        // 時長安全檢查
+        // 時長檢查
         const duration = player.getDuration();
-        if (serverSettings.maxDuration > 0 && duration > serverSettings.maxDuration) {
+        if (settings.maxDuration > 0 && duration > settings.maxDuration) {
           console.warn('時長超過上限，自動跳過');
-          socket.emit('player_error', {
-            videoId: currentSong.videoId,
-            errorCode: 0,
-            reason: 'duration_exceeded'
-          });
+          triggerErrorSkip(0, 'duration_exceeded');
           return;
         }
 
@@ -410,11 +444,10 @@
       } else if (event.data === YT.PlayerState.ENDED) {
         isPlaying = false;
         stopProgressTimer();
-        socket.emit('player_next'); // 索取下一首
+        playNextSong();
       }
     }
 
-    // 處理 YouTube 播放錯誤（如 101/150 版權受限無法嵌入）
     function onPlayerError(event) {
       const code = event.data;
       console.error('YouTube Player Error:', code);
@@ -441,15 +474,40 @@
         } else {
           clearInterval(skipTimer);
           errorAlert.classList.add('hidden');
-          socket.emit('player_error', {
-            videoId: currentSong ? currentSong.videoId : '',
-            errorCode: code
-          });
+          triggerErrorSkip(code);
         }
       }, 1000);
     }
 
-    // 載入歌曲至 Player
+    function triggerErrorSkip(code, reason) {
+      if (currentSong) {
+        history.push({ ...currentSong, error: code, finishedAt: Date.now() });
+      }
+      playNextSong();
+    }
+
+    function playNextSong() {
+      if (currentSong) {
+        history.push({ ...currentSong, finishedAt: Date.now() });
+      }
+
+      if (queue.length > 0) {
+        currentSong = queue.shift();
+        loadSongIntoPlayer(currentSong);
+      } else {
+        currentSong = null;
+        idleScreen.classList.remove('hidden');
+        if (player && isPlayerReady) player.stopVideo();
+        stopProgressTimer();
+        currentSongTitle.textContent = '目前暫無播放歌曲';
+        currentSongAuthor.textContent = '請掃描右上方 QR Code 點播';
+        requesterNote.textContent = '「下課時間到囉！聽首歌放鬆一下吧～」';
+      }
+
+      renderQueue();
+      saveAndBroadcast();
+    }
+
     function loadSongIntoPlayer(song) {
       if (!song) return;
       currentSongTitle.textContent = song.title;
@@ -463,7 +521,6 @@
       }
     }
 
-    // 更新進度條
     function startProgressTimer() {
       stopProgressTimer();
       progressInterval = setInterval(() => {
@@ -480,9 +537,7 @@
       if (progressInterval) clearInterval(progressInterval);
     }
 
-    // 渲染待播清單
-    function renderQueue(items) {
-      queue = items || [];
+    function renderQueue() {
       queueBadge.textContent = `${queue.length} 首`;
       queueCountText.textContent = `待播：${queue.length} 首`;
 
@@ -512,7 +567,6 @@
               ${song.votes && song.votes.length > 0 ? `<span class="text-indigo-400 font-bold">👍 ${song.votes.length}</span>` : ''}
             </div>
           </div>
-          <!-- 老師快速刪除按鈕 -->
           <button onclick="removeSongFromQueue('${song.id}')" class="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-400 p-2 rounded-lg transition-all" title="移除此歌">
             <i class="fa-solid fa-xmark text-sm"></i>
           </button>
@@ -520,68 +574,225 @@
       `).join('');
     }
 
-    // 移除歌曲
     window.removeSongFromQueue = function(songId) {
-      socket.emit('admin_action', {
-        password: 'admin888',
-        action: 'remove_song',
-        payload: { songId }
-      }, (res) => {
-        if (!res.success) alert(res.message);
-      });
+      const idx = queue.findIndex(s => s.id === songId);
+      if (idx !== -1) {
+        queue.splice(idx, 1);
+        renderQueue();
+        saveAndBroadcast();
+      }
     };
 
-    // Socket.io 事件監聽
-    socket.on('state_update', (data) => {
-      serverSettings = data.settings || serverSettings;
-      modeText.textContent = serverSettings.playMode === 'votes' ? '高票優先播放' : '依點歌順序播放';
-      renderQueue(data.queue);
-
-      if (data.currentSong) {
-        currentSong = data.currentSong;
-        loadSongIntoPlayer(currentSong);
+    // 監聽雲端即時事件
+    sync.on('connection_status', (status) => {
+      if (status.connected) {
+        statusText.textContent = '雲端已連線';
+        saveAndBroadcast();
       } else {
-        currentSong = null;
-        idleScreen.classList.remove('hidden');
-        currentSongTitle.textContent = '目前暫無播放歌曲';
-        currentSongAuthor.textContent = '請掃描右上方 QR Code 點播';
-        requesterNote.textContent = '「下課時間到囉！聽首歌放鬆一下吧～」';
+        statusText.textContent = '重連中...';
       }
     });
 
-    socket.on('queue_updated', (data) => {
-      renderQueue(data.queue);
-      // 若當前空閒且有新歌加入，自動請求下一首
-      if (!currentSong && data.queue.length > 0 && isPlayerReady) {
-        socket.emit('player_next');
-      }
-    });
+    // 處理學生點歌請求
+    sync.on('client_request', async (req) => {
+      const { action, reqId, clientId, payload } = req;
 
-    socket.on('now_playing', (data) => {
-      renderQueue(data.queue);
-      if (data.currentSong) {
-        currentSong = data.currentSong;
-        loadSongIntoPlayer(currentSong);
-      } else {
-        currentSong = null;
-        idleScreen.classList.remove('hidden');
-        if (player && isPlayerReady) player.stopVideo();
-        stopProgressTimer();
+      if (action === 'ping') {
+        saveAndBroadcast();
+        return;
       }
-    });
 
-    socket.on('admin_command', (data) => {
-      if (data.command === 'skip') {
-        // 切下一首
-      } else if (data.command === 'play_pause') {
-        if (data.isPlaying !== undefined) {
-          data.isPlaying ? player.playVideo() : player.pauseVideo();
-        } else {
-          isPlaying ? player.pauseVideo() : player.playVideo();
+      if (action === 'request_song') {
+        const { url, seat, nickname, note, duration } = payload;
+        const videoId = YTUtils.extractVideoId(url);
+
+        if (!videoId) {
+          sync.sendResponse(clientId, { reqId, success: false, message: '無法識別此 YouTube 網址' });
+          return;
         }
-      } else if (data.command === 'set_volume') {
-        volumeSlider.value = data.volume;
-        if (player && isPlayerReady) player.setVolume(data.volume);
+
+        // 檢查重複歌曲
+        if (!settings.allowDuplicates) {
+          const inQueue = queue.some(s => s.videoId === videoId);
+          const isCurrent = currentSong && currentSong.videoId === videoId;
+          if (inQueue || isCurrent) {
+            sync.sendResponse(clientId, { reqId, success: false, message: '這首歌已經在播放清單中了喔！' });
+            return;
+          }
+        }
+
+        // 檢查學生個人上限
+        const studentTag = seat ? `seat:${seat}` : `client:${clientId}`;
+        const activeCount = queue.filter(s => s.studentTag === studentTag).length;
+        if (activeCount >= settings.maxActivePerStudent) {
+          sync.sendResponse(clientId, {
+            reqId,
+            success: false,
+            message: `您目前已有 ${activeCount} 首歌在排隊，請等播完再點喔！（上限 ${settings.maxActivePerStudent} 首）`
+          });
+          return;
+        }
+
+        // 獲取元數據
+        const meta = await YTUtils.fetchMetadata(videoId);
+        const studentIdentifier = (seat ? `座號 ${seat}` : (nickname || '匿名同學')).trim();
+
+        const newSong = {
+          id: 'song_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+          videoId,
+          title: meta.title,
+          author: meta.author,
+          thumbnail: meta.thumbnail,
+          duration: duration || 0,
+          seat: seat || '',
+          nickname: nickname || '',
+          requester: studentIdentifier,
+          note: (note || '').trim(),
+          studentTag,
+          addedAt: Date.now(),
+          votes: []
+        };
+
+        if (settings.autoApprove) {
+          queue.push(newSong);
+          sortQueue();
+          renderQueue();
+          saveAndBroadcast();
+
+          if (!currentSong && isPlayerReady) {
+            playNextSong();
+          }
+
+          sync.sendResponse(clientId, {
+            reqId,
+            success: true,
+            message: `點歌成功！《${newSong.title}》已排入播放清單`,
+            song: newSong
+          });
+        } else {
+          pendingApproval.push(newSong);
+          saveAndBroadcast();
+          sync.sendResponse(clientId, {
+            reqId,
+            success: true,
+            message: `點歌已送出！《${newSong.title}》等待老師審核中`,
+            song: newSong,
+            pending: true
+          });
+        }
+      }
+
+      if (action === 'upvote_song') {
+        const { songId, voterId } = payload;
+        const song = queue.find(s => s.id === songId);
+        if (!song) {
+          sync.sendResponse(clientId, { reqId, success: false, message: '歌曲不存在或已播畢' });
+          return;
+        }
+
+        if (!song.votes) song.votes = [];
+        const index = song.votes.indexOf(voterId);
+        let voted = false;
+        if (index === -1) {
+          song.votes.push(voterId);
+          voted = true;
+        } else {
+          song.votes.splice(index, 1);
+          voted = false;
+        }
+
+        sortQueue();
+        renderQueue();
+        saveAndBroadcast();
+
+        sync.sendResponse(clientId, {
+          reqId,
+          success: true,
+          voted,
+          votesCount: song.votes.length
+        });
+      }
+    });
+
+    // 處理老師遙控命令
+    sync.on('admin_command', (cmd) => {
+      const { action, password, reqId, clientId, payload } = cmd;
+
+      if (password !== settings.adminPassword) {
+        sync.sendResponse(clientId, { reqId, success: false, message: '管理員密碼不正確' });
+        return;
+      }
+
+      switch (action) {
+        case 'skip':
+          playNextSong();
+          sync.sendResponse(clientId, { reqId, success: true, message: '已切換下一首' });
+          break;
+
+        case 'play_pause':
+          if (isPlaying) {
+            player.pauseVideo();
+          } else {
+            player.playVideo();
+          }
+          sync.sendResponse(clientId, { reqId, success: true });
+          break;
+
+        case 'set_volume':
+          volumeSlider.value = payload.volume;
+          if (player && isPlayerReady) player.setVolume(payload.volume);
+          sync.sendResponse(clientId, { reqId, success: true });
+          break;
+
+        case 'remove_song':
+          removeSongFromQueue(payload.songId);
+          sync.sendResponse(clientId, { reqId, success: true, message: '已移除該歌曲' });
+          break;
+
+        case 'approve_song': {
+          const idx = pendingApproval.findIndex(s => s.id === payload.songId);
+          if (idx !== -1) {
+            const approved = pendingApproval.splice(idx, 1)[0];
+            queue.push(approved);
+            sortQueue();
+            renderQueue();
+            saveAndBroadcast();
+            if (!currentSong && isPlayerReady) playNextSong();
+            sync.sendResponse(clientId, { reqId, success: true, message: '已准許並加入佇列' });
+          }
+          break;
+        }
+
+        case 'reject_song': {
+          const idx = pendingApproval.findIndex(s => s.id === payload.songId);
+          if (idx !== -1) {
+            pendingApproval.splice(idx, 1);
+            saveAndBroadcast();
+            sync.sendResponse(clientId, { reqId, success: true, message: '已拒絕點歌' });
+          }
+          break;
+        }
+
+        case 'clear_queue':
+          queue = [];
+          renderQueue();
+          saveAndBroadcast();
+          sync.sendResponse(clientId, { reqId, success: true, message: '已清空佇列' });
+          break;
+
+        case 'update_settings':
+          if (payload.maxDuration !== undefined) settings.maxDuration = parseInt(payload.maxDuration, 10);
+          if (payload.maxActivePerStudent !== undefined) settings.maxActivePerStudent = parseInt(payload.maxActivePerStudent, 10);
+          if (payload.autoApprove !== undefined) settings.autoApprove = Boolean(payload.autoApprove);
+          if (payload.playMode !== undefined) {
+            settings.playMode = payload.playMode;
+            sortQueue();
+            renderQueue();
+          }
+          if (payload.newPassword) settings.adminPassword = payload.newPassword;
+          saveAndBroadcast();
+          sync.sendResponse(clientId, { reqId, success: true, message: '設定已更新' });
+          break;
       }
     });
 
@@ -597,7 +808,7 @@
 
     // 切下一首按鈕
     btnSkipSong.addEventListener('click', () => {
-      socket.emit('player_next');
+      playNextSong();
     });
 
     // 音量調整
@@ -630,10 +841,9 @@
     // 快速清空佇列
     btnQuickClear.addEventListener('click', () => {
       if (confirm('確定要清空所有待播歌曲嗎？')) {
-        socket.emit('admin_action', {
-          password: 'admin888',
-          action: 'clear_queue'
-        });
+        queue = [];
+        renderQueue();
+        saveAndBroadcast();
       }
     });
 
@@ -655,6 +865,15 @@
         btnFullscreen.click();
       }
     });
+
+    // 初始渲染
+    renderQueue();
+    if (currentSong) {
+      currentSongTitle.textContent = currentSong.title;
+      currentSongAuthor.textContent = currentSong.author || 'YouTube 創作者';
+      requesterTag.textContent = currentSong.requester ? `來自 ${currentSong.requester} 的點播` : '來自 同學 的點播';
+      requesterNote.textContent = currentSong.note ? `「${currentSong.note}」` : '「祝全班下課愉快，天天開開心心！」';
+    }
   </script>
 </body>
 </html>

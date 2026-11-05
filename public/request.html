@@ -6,15 +6,13 @@
   <title>學生點歌台 - 班級點播系統</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
+  <script src="cloud-sync.js"></script>
   <style>
     body {
       background: radial-gradient(circle at top, #0f172a, #020617);
       min-height: 100vh;
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    }
-    .tap-highlight-transparent {
-      -webkit-tap-highlight-color: transparent;
     }
   </style>
 </head>
@@ -30,7 +28,8 @@
         <div>
           <h1 class="text-sm font-bold text-white tracking-tight flex items-center gap-1.5">
             <span>學生點歌台</span>
-            <span id="conn-pill" class="text-[10px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-1.5 py-0.2 rounded-full">連線正常</span>
+            <span id="conn-pill" class="text-[10px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-1.5 py-0.2 rounded-full">雲端連線中</span>
+            <span id="room-tag" class="text-[10px] font-mono font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-1.5 py-0.2 rounded-full">607</span>
           </h1>
           <p class="text-[11px] text-slate-400">大螢幕同步播放中</p>
         </div>
@@ -100,7 +99,7 @@
             <h4 id="preview-title" class="text-xs font-bold text-white truncate leading-snug">歌曲名稱</h4>
             <p id="preview-author" class="text-[11px] text-slate-400 truncate mt-0.5">創作者</p>
             <div id="preview-badge" class="mt-1 inline-flex text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300">
-              時長: --:--
+              YouTube 影片已就緒
             </div>
           </div>
         </div>
@@ -154,9 +153,7 @@
         <span class="text-xs text-slate-400">點 👍 為喜歡的歌按讚投票</span>
       </div>
 
-      <div id="live-queue-list" class="space-y-2.5">
-        <!-- JS 動態產生 -->
-      </div>
+      <div id="live-queue-list" class="space-y-2.5"></div>
     </section>
 
     <!-- 頁籤三：我的點播紀錄 (Tab: My Songs) -->
@@ -165,9 +162,7 @@
         <i class="fa-solid fa-clock-rotate-left text-indigo-400"></i> 我在此裝置點播的歌曲
       </h2>
 
-      <div id="my-songs-list" class="space-y-2.5">
-        <!-- JS 動態產生 -->
-      </div>
+      <div id="my-songs-list" class="space-y-2.5"></div>
     </section>
 
   </main>
@@ -179,13 +174,19 @@
   </div>
 
   <script>
-    // 初始化 Socket.io 與用戶識別碼 (Client ID)
-    const socket = io();
+    // 取得房間號
+    const roomParam = new URLSearchParams(window.location.search).get('room') || '607';
+    document.getElementById('room-tag').textContent = roomParam;
+
+    // 用戶識別碼
     let myClientId = localStorage.getItem('jukebox_client_id');
     if (!myClientId) {
       myClientId = 'client_' + Math.random().toString(36).substr(2, 9);
       localStorage.setItem('jukebox_client_id', myClientId);
     }
+
+    // 初始化雲端同步核心
+    const sync = new CloudSync({ role: 'client', room: roomParam, clientId: myClientId });
 
     // 歷史本地點歌紀錄
     let myHistory = JSON.parse(localStorage.getItem('jukebox_my_history') || '[]');
@@ -193,6 +194,7 @@
     let currentNowPlaying = null;
 
     // DOM 元素
+    const connPill = document.getElementById('conn-pill');
     const inputSeat = document.getElementById('input-seat');
     const inputNickname = document.getElementById('input-nickname');
     const inputUrl = document.getElementById('input-url');
@@ -203,13 +205,11 @@
     const previewThumb = document.getElementById('preview-thumb');
     const previewTitle = document.getElementById('preview-title');
     const previewAuthor = document.getElementById('preview-author');
-    const previewBadge = document.getElementById('preview-badge');
     const previewLoading = document.getElementById('preview-loading');
     const toast = document.getElementById('toast');
     const toastText = document.getElementById('toast-text');
     const toastIcon = document.getElementById('toast-icon');
 
-    // 頁籤切換
     const tabBtnRequest = document.getElementById('tab-btn-request');
     const tabBtnQueue = document.getElementById('tab-btn-queue');
     const tabBtnMy = document.getElementById('tab-btn-my');
@@ -222,7 +222,7 @@
     const miniNowPlaying = document.getElementById('mini-now-playing');
     const miniTitle = document.getElementById('mini-title');
 
-    // 自動填入上次記憶的座號與暱稱
+    // 記憶座號與暱稱
     inputSeat.value = localStorage.getItem('jukebox_seat') || '';
     inputNickname.value = localStorage.getItem('jukebox_nickname') || '';
 
@@ -257,8 +257,9 @@
       }, 500);
     });
 
-    function handleUrlPreview(url) {
-      if (!url) {
+    async function handleUrlPreview(url) {
+      const videoId = YTUtils.extractVideoId(url);
+      if (!videoId) {
         previewCard.classList.add('hidden');
         previewLoading.classList.add('hidden');
         return;
@@ -266,40 +267,14 @@
       previewLoading.classList.remove('hidden');
       previewCard.classList.add('hidden');
 
-      fetch(`/api/preview?url=${encodeURIComponent(url)}`)
-        .then(res => res.json())
-        .then(data => {
-          previewLoading.classList.add('hidden');
-          if (data.title) {
-            previewTitle.textContent = data.title;
-            previewAuthor.textContent = data.author || '';
-            previewThumb.src = data.thumbnail;
-
-            const mins = Math.floor(data.duration / 60);
-            const secs = data.duration % 60;
-            const timeStr = data.duration > 0 ? `${mins}分${secs}秒` : '未知時長';
-
-            if (data.duration > 360) {
-              previewBadge.className = 'mt-1 inline-flex text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-500/20 text-red-300 border border-red-500/40';
-              previewBadge.textContent = `⚠️ 時長: ${timeStr} (超過班級6分鐘限制)`;
-            } else {
-              previewBadge.className = 'mt-1 inline-flex text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300';
-              previewBadge.textContent = `時長: ${timeStr}`;
-            }
-            previewCard.classList.remove('hidden');
-          }
-        })
-        .catch(() => {
-          previewLoading.classList.add('hidden');
-        });
-    }
-
-    // 格式化時間
-    function formatTime(seconds) {
-      if (!seconds) return '00:00';
-      const mins = Math.floor(seconds / 60);
-      const secs = Math.floor(seconds % 60);
-      return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+      const meta = await YTUtils.fetchMetadata(videoId);
+      previewLoading.classList.add('hidden');
+      if (meta && meta.title) {
+        previewTitle.textContent = meta.title;
+        previewAuthor.textContent = meta.author || '';
+        previewThumb.src = meta.thumbnail;
+        previewCard.classList.remove('hidden');
+      }
     }
 
     // 送出點歌
@@ -321,6 +296,12 @@
         return;
       }
 
+      const videoId = YTUtils.extractVideoId(url);
+      if (!videoId) {
+        showToast('無法識別此 YouTube 網址，請確認格式', 'warning');
+        return;
+      }
+
       // 記憶座號與暱稱
       localStorage.setItem('jukebox_seat', seat);
       localStorage.setItem('jukebox_nickname', nickname);
@@ -328,12 +309,11 @@
       btnSubmit.disabled = true;
       btnSubmit.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i> <span>點播傳送中...</span>';
 
-      socket.emit('request_song', {
+      sync.sendRequest('request_song', {
         seat,
         nickname,
         url,
-        note,
-        clientId: myClientId
+        note
       }, (res) => {
         btnSubmit.disabled = false;
         btnSubmit.innerHTML = '<i class="fa-solid fa-paper-plane"></i> <span>送出點播給全班聽</span>';
@@ -344,7 +324,6 @@
           inputNote.value = '';
           previewCard.classList.add('hidden');
 
-          // 紀錄至個人歷史
           if (res.song) {
             myHistory.unshift(res.song);
             if (myHistory.length > 20) myHistory.pop();
@@ -352,7 +331,6 @@
             renderMySongs();
           }
 
-          // 自動切到清單頁面
           switchTab('queue');
         } else {
           showToast(res.message, 'error');
@@ -378,6 +356,14 @@
     tabBtnQueue.addEventListener('click', () => switchTab('queue'));
     tabBtnMy.addEventListener('click', () => switchTab('my'));
 
+    // 格式化時間 (秒 -> mm:ss)
+    function formatTime(seconds) {
+      if (!seconds) return '';
+      const mins = Math.floor(seconds / 60);
+      const secs = Math.floor(seconds % 60);
+      return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+
     // 渲染排隊清單
     function renderQueue() {
       tabQueueCount.textContent = currentQueue.length;
@@ -394,7 +380,6 @@
 
       let html = '';
 
-      // 當前播放卡片
       if (currentNowPlaying) {
         html += `
           <div class="p-3.5 rounded-2xl bg-indigo-950/60 border border-indigo-500/40 shadow-lg">
@@ -415,7 +400,6 @@
         `;
       }
 
-      // 排隊中歌曲
       if (currentQueue.length > 0) {
         html += `<div class="text-[11px] font-bold text-slate-400 pt-1">接續待播（${currentQueue.length} 首）：</div>`;
         html += currentQueue.map((song, index) => {
@@ -432,7 +416,6 @@
                   ${song.duration ? `<span>• ${formatTime(song.duration)}</span>` : ''}
                 </div>
               </div>
-              <!-- 按讚按鈕 -->
               <button onclick="toggleUpvote('${song.id}')" class="flex items-center gap-1 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all ${hasVoted ? 'bg-pink-500 text-white border-pink-400 shadow-sm' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}">
                 <i class="fa-solid fa-thumbs-up text-xs"></i>
                 <span>${voteCount}</span>
@@ -445,26 +428,23 @@
       liveQueueList.innerHTML = html;
     }
 
-    // 按讚互動
     window.toggleUpvote = function(songId) {
-      socket.emit('upvote_song', { songId, voterId: myClientId }, (res) => {
+      sync.sendRequest('upvote_song', { songId, voterId: myClientId }, (res) => {
         if (!res.success) showToast(res.message, 'warning');
       });
     };
 
-    // 渲染我的點播
     function renderMySongs() {
       if (myHistory.length === 0) {
         mySongsList.innerHTML = `
           <div class="text-center py-12 text-slate-500 text-xs">
-            您尚未在此手機點過歌曲喔！
+            您尚未在此裝置點過歌曲喔！
           </div>
         `;
         return;
       }
 
       mySongsList.innerHTML = myHistory.map((song) => {
-        // 比對目前狀態
         let statusBadge = '<span class="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full">已播畢</span>';
         if (currentNowPlaying && currentNowPlaying.id === song.id) {
           statusBadge = '<span class="text-[10px] bg-pink-500/20 text-pink-400 border border-pink-500/30 px-2 py-0.5 rounded-full font-bold animate-pulse">正在大螢幕播放中</span>';
@@ -488,7 +468,6 @@
       }).join('');
     }
 
-    // 顯示 Toast 通知
     let toastTimer = null;
     function showToast(msg, type = 'success') {
       toastText.textContent = msg;
@@ -509,36 +488,30 @@
       }, 3500);
     }
 
-    // Socket.io 監聽事件
-    socket.on('state_update', (data) => {
+    // 雲端連線狀態
+    sync.on('connection_status', (status) => {
+      if (status.connected) {
+        connPill.textContent = '雲端連線正常';
+        connPill.className = 'text-[10px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-1.5 py-0.2 rounded-full';
+      } else {
+        connPill.textContent = '重新連線中...';
+        connPill.className = 'text-[10px] font-semibold bg-amber-500/20 text-amber-400 border border-amber-500/30 px-1.5 py-0.2 rounded-full';
+      }
+    });
+
+    // 收到大螢幕推播的最新狀態
+    sync.on('state_update', (data) => {
       currentQueue = data.queue || [];
       currentNowPlaying = data.currentSong || null;
-      updateMiniPlayer();
-      renderQueue();
-    });
-
-    socket.on('queue_updated', (data) => {
-      currentQueue = data.queue || [];
-      renderQueue();
-      if (data.message) showToast(data.message, 'info');
-    });
-
-    socket.on('now_playing', (data) => {
-      currentNowPlaying = data.currentSong;
-      currentQueue = data.queue || [];
-      updateMiniPlayer();
-      renderQueue();
-      renderMySongs();
-    });
-
-    function updateMiniPlayer() {
       if (currentNowPlaying) {
         miniNowPlaying.classList.remove('hidden');
         miniTitle.textContent = currentNowPlaying.title;
       } else {
         miniNowPlaying.classList.add('hidden');
       }
-    }
+      renderQueue();
+      renderMySongs();
+    });
   </script>
 </body>
 </html>
