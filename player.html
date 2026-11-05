@@ -530,16 +530,31 @@
       }
     }
 
-    // 點擊解鎖 Autoplay
-    btnStartPlayer.addEventListener('click', () => {
+    // 點擊解鎖 Autoplay（點擊按鈕或遮罩任一處皆可解鎖進入）
+    function unlockAutoplay() {
+      if (!autoplayModal || autoplayModal.classList.contains('hidden')) return;
       autoplayModal.style.opacity = '0';
-      setTimeout(() => autoplayModal.classList.add('hidden'), 500);
+      autoplayModal.style.pointerEvents = 'none';
+      setTimeout(() => {
+        autoplayModal.classList.add('hidden');
+        autoplayModal.classList.remove('flex');
+      }, 400);
       if (currentSong && player && isPlayerReady) {
         player.playVideo();
       } else if (!currentSong && queue.length > 0) {
         playNextSong();
       }
-    });
+    }
+
+    if (btnStartPlayer) {
+      btnStartPlayer.addEventListener('click', (e) => {
+        e.stopPropagation();
+        unlockAutoplay();
+      });
+    }
+    if (autoplayModal) {
+      autoplayModal.addEventListener('click', unlockAutoplay);
+    }
 
     // YouTube API 準備就緒
     window.onYouTubeIframeAPIReady = function() {
@@ -811,10 +826,6 @@
           nickname: nickname || '',
           requester: studentIdentifier,
           note: (note || '').trim(),
-          studentTag,
-          addedAt: Date.now(),
-          votes: []
-        };
           studentTag,
           addedAt: Date.now(),
           votes: []
