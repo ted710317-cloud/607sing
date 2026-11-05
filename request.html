@@ -309,14 +309,29 @@
       btnSubmit.disabled = true;
       btnSubmit.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i> <span>點播傳送中...</span>';
 
+      const resetBtn = () => {
+        btnSubmit.disabled = false;
+        btnSubmit.innerHTML = '<i class="fa-solid fa-paper-plane"></i> <span>送出點播給全班聽</span>';
+      };
+
+      // 取得預覽資料（若有），加快大螢幕處理速度
+      const songTitle = (previewTitle && previewTitle.textContent && previewTitle.textContent !== '歌曲名稱')
+        ? previewTitle.textContent.trim() : '';
+      const songAuthor = (previewAuthor && previewAuthor.textContent && previewAuthor.textContent !== '創作者')
+        ? previewAuthor.textContent.trim() : '';
+      const songThumb = (previewThumb && previewThumb.src && !previewThumb.src.endsWith('/'))
+        ? previewThumb.src : `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+
       sync.sendRequest('request_song', {
         seat,
         nickname,
         url,
-        note
+        note,
+        title: songTitle,
+        author: songAuthor,
+        thumbnail: songThumb
       }, (res) => {
-        btnSubmit.disabled = false;
-        btnSubmit.innerHTML = '<i class="fa-solid fa-paper-plane"></i> <span>送出點播給全班聽</span>';
+        resetBtn();
 
         if (res.success) {
           showToast(res.message, 'success');

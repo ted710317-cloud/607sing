@@ -603,7 +603,7 @@
       }
 
       if (action === 'request_song') {
-        const { url, seat, nickname, note, duration } = payload;
+        const { url, seat, nickname, note, duration, title, author, thumbnail } = payload;
         const videoId = YTUtils.extractVideoId(url);
 
         if (!videoId) {
@@ -633,21 +633,35 @@
           return;
         }
 
-        // 獲取元數據
-        const meta = await YTUtils.fetchMetadata(videoId);
+        // 優先使用學生端已解析好的資訊，避免大螢幕重複發出網路請求阻塞
+        let songTitle = (title && title !== '歌曲名稱') ? title.trim() : null;
+        let songAuthor = (author && author !== '創作者') ? author.trim() : null;
+        let songThumbnail = thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+
+        if (!songTitle) {
+          const meta = await YTUtils.fetchMetadata(videoId);
+          songTitle = meta.title;
+          songAuthor = meta.author;
+          songThumbnail = meta.thumbnail;
+        }
+
         const studentIdentifier = (seat ? `座號 ${seat}` : (nickname || '匿名同學')).trim();
 
         const newSong = {
           id: 'song_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
           videoId,
-          title: meta.title,
-          author: meta.author,
-          thumbnail: meta.thumbnail,
+          title: songTitle,
+          author: songAuthor,
+          thumbnail: songThumbnail,
           duration: duration || 0,
           seat: seat || '',
           nickname: nickname || '',
           requester: studentIdentifier,
           note: (note || '').trim(),
+          studentTag,
+          addedAt: Date.now(),
+          votes: []
+        };
           studentTag,
           addedAt: Date.now(),
           votes: []
@@ -874,6 +888,13 @@
       requesterTag.textContent = currentSong.requester ? `來自 ${currentSong.requester} 的點播` : '來自 同學 的點播';
       requesterNote.textContent = currentSong.note ? `「${currentSong.note}」` : '「祝全班下課愉快，天天開開心心！」';
     }
+
+    // 定期 15 秒心跳廣播，保持雲端連線活躍
+    setInterval(() => {
+      if (sync.isConnected) {
+        saveAndBroadcast();
+      }
+    }, 15000);
   </script>
 </body>
 </html>
