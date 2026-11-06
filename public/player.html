@@ -176,6 +176,15 @@
           <div id="youtube-player"></div>
         </div>
 
+        <!-- 點擊開始播放提示 (當瀏覽器阻擋自動有聲播放時顯示) -->
+        <div id="play-prompt" class="hidden absolute inset-0 z-20 bg-slate-950/80 backdrop-blur-sm flex flex-col items-center justify-center cursor-pointer group transition-all">
+          <div class="w-20 h-20 rounded-full bg-gradient-to-tr from-pink-500 to-indigo-600 flex items-center justify-center text-white text-3xl shadow-2xl group-hover:scale-110 transition-transform animate-pulse">
+            <i class="fa-solid fa-play ml-1"></i>
+          </div>
+          <p class="text-white font-bold text-base mt-4 drop-shadow">點擊畫面任意處開始播放</p>
+          <p id="prompt-song-title" class="text-indigo-300 text-xs mt-1 max-w-sm truncate px-4">歌曲準備就緒</p>
+        </div>
+
         <!-- 錯誤通知卡片 (例如 Error 101/150 版權受限無法嵌入) -->
         <div id="error-alert" class="hidden absolute inset-0 bg-slate-950/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center z-30">
           <div class="w-16 h-16 rounded-full bg-amber-500/20 border border-amber-500/50 flex items-center justify-center text-amber-400 text-3xl mb-4 animate-bounce">
@@ -185,9 +194,14 @@
           <p id="error-desc" class="text-sm text-slate-300 max-w-md leading-relaxed mb-4">
             此影片因版權方限制無法於外部網頁播放（錯誤代碼 101/150）。
           </p>
-          <div class="inline-flex items-center gap-2 text-indigo-400 text-xs font-bold bg-indigo-950/80 px-4 py-2 rounded-full border border-indigo-800">
-            <i class="fa-solid fa-forward-step animate-spin"></i>
-            <span id="countdown-text">將在 3 秒後自動切換至下一首...</span>
+          <div class="flex items-center gap-3">
+            <button id="btn-skip-error-now" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5">
+              <i class="fa-solid fa-forward-step"></i>
+              <span>立即跳下一首</span>
+            </button>
+            <div class="inline-flex items-center gap-2 text-slate-400 text-xs font-medium bg-slate-900/80 px-3 py-2 rounded-xl border border-slate-800">
+              <span id="countdown-text">將在 3 秒後自動切換...</span>
+            </div>
           </div>
         </div>
 
@@ -349,7 +363,8 @@
       savedState = JSON.parse(localStorage.getItem(STORAGE_KEY));
     } catch(e) {}
 
-    let currentSong = savedState ? savedState.currentSong : null;
+    // 當前播放歌曲在啟動時預設為 null，避免舊狀態鎖死自動連播機制
+    let currentSong = null;
     let queue = savedState ? (savedState.queue || []) : [];
     let history = savedState ? (savedState.history || []) : [];
     let pendingApproval = savedState ? (savedState.pendingApproval || []) : [];
@@ -358,12 +373,17 @@
     let player = null;
     let isPlayerReady = false;
     let isPlaying = false;
+    let shouldAutoPlayWhenReady = false;
     let progressInterval = null;
     let skipTimer = null;
+    let playPromptTimer = null;
 
     // DOM 節點
     const autoplayModal = document.getElementById('autoplay-modal');
     const btnStartPlayer = document.getElementById('btn-start-player');
+    const playPrompt = document.getElementById('play-prompt');
+    const promptSongTitle = document.getElementById('prompt-song-title');
+    const btnSkipErrorNow = document.getElementById('btn-skip-error-now');
     const qrcodeBox = document.getElementById('qrcode-box');
     const studentUrlText = document.getElementById('student-url-text');
     const currentSongTitle = document.getElementById('current-song-title');
@@ -539,9 +559,10 @@
         autoplayModal.classList.add('hidden');
         autoplayModal.classList.remove('flex');
       }, 400);
-      if (currentSong && player && isPlayerReady) {
+
+      if (currentSong && player && isPlayerReady && typeof player.playVideo === 'function') {
         player.playVideo();
-      } else if (!currentSong && queue.length > 0) {
+      } else if ((!currentSong || !isPlaying) && queue.length > 0) {
         playNextSong();
       }
     }
@@ -556,8 +577,42 @@
       autoplayModal.addEventListener('click', unlockAutoplay);
     }
 
-    // YouTube API 準備就緒
-    window.onYouTubeIframeAPIReady = function() {
+    // 播放提示 (當瀏覽器限制自動播放時，點擊直接開播)
+    function schedulePlayPrompt() {
+      if (playPromptTimer) clearTimeout(playPromptTimer);
+      playPromptTimer = setTimeout(() => {
+        if (!isPlaying && currentSong && playPrompt) {
+          if (promptSongTitle) promptSongTitle.textContent = currentSong.title || '點擊播放';
+          playPrompt.classList.remove('hidden');
+        }
+      }, 1200);
+    }
+
+    function hidePlayPrompt() {
+      if (playPromptTimer) clearTimeout(playPromptTimer);
+      if (playPrompt) playPrompt.classList.add('hidden');
+    }
+
+    if (playPrompt) {
+      playPrompt.addEventListener('click', () => {
+        hidePlayPrompt();
+        if (player && isPlayerReady && typeof player.playVideo === 'function') {
+          player.playVideo();
+        }
+      });
+    }
+
+    if (btnSkipErrorNow) {
+      btnSkipErrorNow.addEventListener('click', () => {
+        if (skipTimer) clearInterval(skipTimer);
+        errorAlert.classList.add('hidden');
+        triggerErrorSkip('manual_skip');
+      });
+    }
+
+    // YouTube API 準備就緒（處理 API 預先載入或延遲載入之競態問題）
+    function initYouTubePlayer() {
+      if (player || !window.YT || !window.YT.Player) return;
       player = new YT.Player('youtube-player', {
         height: '100%',
         width: '100%',
@@ -566,7 +621,10 @@
           controls: 1,
           rel: 0,
           modestbranding: 1,
-          playsinline: 1
+          playsinline: 1,
+          enablejsapi: 1,
+          origin: window.location.origin || (window.location.protocol + '//' + window.location.host),
+          widget_referrer: window.location.href
         },
         events: {
           'onReady': onPlayerReady,
@@ -574,15 +632,24 @@
           'onError': onPlayerError
         }
       });
-    };
+    }
+
+    if (window.YT && window.YT.Player) {
+      initYouTubePlayer();
+    } else {
+      window.onYouTubeIframeAPIReady = initYouTubePlayer;
+    }
 
     function onPlayerReady(event) {
       isPlayerReady = true;
-      player.setVolume(parseInt(volumeSlider.value, 10));
+      try {
+        player.setVolume(parseInt(volumeSlider.value, 10));
+      } catch (e) {}
 
       if (currentSong) {
         loadSongIntoPlayer(currentSong);
-      } else if (queue.length > 0) {
+      } else if (shouldAutoPlayWhenReady || queue.length > 0) {
+        shouldAutoPlayWhenReady = false;
         playNextSong();
       }
     }
@@ -590,20 +657,44 @@
     function onPlayerStateChange(event) {
       if (event.data === YT.PlayerState.PLAYING) {
         isPlaying = true;
+        hidePlayPrompt();
         btnTogglePlay.innerHTML = '<i class="fa-solid fa-pause text-base"></i>';
         equalizer.classList.remove('eq-paused');
         idleScreen.classList.add('hidden');
         errorAlert.classList.add('hidden');
 
+        // 嘗試取得官方 YouTube 影片名稱與作者，補足快速點播時之預設文字
+        try {
+          const data = player.getVideoData();
+          if (data && data.title && currentSong) {
+            if (!currentSong.title || currentSong.title.startsWith('點播歌曲')) {
+              currentSong.title = data.title;
+              currentSongTitle.textContent = data.title;
+            }
+            if (data.author && (!currentSong.author || currentSong.author === 'YouTube')) {
+              currentSong.author = data.author;
+              currentSongAuthor.textContent = data.author;
+            }
+          }
+        } catch (e) {}
+
         // 時長檢查
-        const duration = player.getDuration();
-        if (settings.maxDuration > 0 && duration > settings.maxDuration) {
-          console.warn('時長超過上限，自動跳過');
-          triggerErrorSkip(0, 'duration_exceeded');
-          return;
-        }
+        try {
+          const duration = player.getDuration();
+          if (settings.maxDuration > 0 && duration > settings.maxDuration) {
+            console.warn('時長超過上限，自動跳過');
+            triggerErrorSkip(0, 'duration_exceeded');
+            return;
+          }
+        } catch (e) {}
 
         startProgressTimer();
+      } else if (event.data === YT.PlayerState.CUED || event.data === 5) {
+        // 影片載入完成，若處於 CUED 狀態主動觸發播放
+        if (player && typeof player.playVideo === 'function') {
+          player.playVideo();
+        }
+        schedulePlayPrompt();
       } else if (event.data === YT.PlayerState.PAUSED) {
         isPlaying = false;
         btnTogglePlay.innerHTML = '<i class="fa-solid fa-play text-base ml-0.5"></i>';
@@ -611,6 +702,7 @@
         stopProgressTimer();
       } else if (event.data === YT.PlayerState.ENDED) {
         isPlaying = false;
+        hidePlayPrompt();
         stopProgressTimer();
         playNextSong();
       }
@@ -655,6 +747,8 @@
     }
 
     function playNextSong() {
+      hidePlayPrompt();
+      if (skipTimer) clearInterval(skipTimer);
       if (currentSong) {
         history.push({ ...currentSong, finishedAt: Date.now() });
       }
@@ -664,8 +758,11 @@
         loadSongIntoPlayer(currentSong);
       } else {
         currentSong = null;
+        isPlaying = false;
         idleScreen.classList.remove('hidden');
-        if (player && isPlayerReady) player.stopVideo();
+        if (player && isPlayerReady && typeof player.stopVideo === 'function') {
+          player.stopVideo();
+        }
         stopProgressTimer();
         currentSongTitle.textContent = '目前暫無播放歌曲';
         currentSongAuthor.textContent = '請掃描右上方 QR Code 點播';
@@ -683,9 +780,17 @@
       requesterTag.textContent = song.requester ? `來自 ${song.requester} 的點播` : '來自 同學 的點播';
       requesterNote.textContent = song.note ? `「${song.note}」` : '「祝全班下課愉快，天天開開心心！」';
       idleScreen.classList.add('hidden');
+      errorAlert.classList.add('hidden');
 
-      if (isPlayerReady && player) {
-        player.loadVideoById(song.videoId);
+      if (isPlayerReady && player && typeof player.loadVideoById === 'function') {
+        player.loadVideoById({
+          videoId: song.videoId,
+          startSeconds: 0
+        });
+        player.playVideo();
+        schedulePlayPrompt();
+      } else {
+        shouldAutoPlayWhenReady = true;
       }
     }
 
@@ -761,8 +866,29 @@
       }
     });
 
-    // 處理學生點歌請求
-    sync.on('client_request', async (req) => {
+    // 佇列化循序處理學生點歌，避免多人同時點歌時產生競爭條件 (Race Condition) 與請求超時
+    const incomingQueue = [];
+    let isProcessingIncoming = false;
+
+    sync.on('client_request', (req) => {
+      incomingQueue.push(req);
+      processIncomingQueue();
+    });
+
+    function processIncomingQueue() {
+      if (isProcessingIncoming) return;
+      isProcessingIncoming = true;
+      try {
+        while (incomingQueue.length > 0) {
+          const req = incomingQueue.shift();
+          handleSingleClientRequest(req);
+        }
+      } finally {
+        isProcessingIncoming = false;
+      }
+    }
+
+    function handleSingleClientRequest(req) {
       const { action, reqId, clientId, payload } = req;
 
       if (action === 'ping') {
@@ -801,18 +927,10 @@
           return;
         }
 
-        // 優先使用學生端已解析好的資訊，避免大螢幕重複發出網路請求阻塞
-        let songTitle = (title && title !== '歌曲名稱') ? title.trim() : null;
-        let songAuthor = (author && author !== '創作者') ? author.trim() : null;
+        // 立即建立歌曲物件（絕不因網路請求阻礙學生端回應）
+        let songTitle = (title && title !== '歌曲名稱') ? title.trim() : `點播歌曲 (${videoId})`;
+        let songAuthor = (author && author !== '創作者') ? author.trim() : 'YouTube';
         let songThumbnail = thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
-
-        if (!songTitle) {
-          const meta = await YTUtils.fetchMetadata(videoId);
-          songTitle = meta.title;
-          songAuthor = meta.author;
-          songThumbnail = meta.thumbnail;
-        }
-
         const studentIdentifier = (seat ? `座號 ${seat}` : (nickname || '匿名同學')).trim();
 
         const newSong = {
@@ -831,14 +949,34 @@
           votes: []
         };
 
+        // 背景非同步補充標題資訊（不阻塞點歌即時回應）
+        if (!title || title === '歌曲名稱') {
+          YTUtils.fetchMetadata(videoId).then(meta => {
+            if (meta && meta.title && !meta.title.includes('YouTube 歌曲 (')) {
+              newSong.title = meta.title;
+              newSong.author = meta.author;
+              newSong.thumbnail = meta.thumbnail;
+              if (currentSong && currentSong.id === newSong.id) {
+                currentSongTitle.textContent = meta.title;
+                currentSongAuthor.textContent = meta.author;
+              }
+              renderQueue();
+              saveAndBroadcast();
+            }
+          }).catch(() => {});
+        }
+
         if (settings.autoApprove) {
           queue.push(newSong);
           sortQueue();
           renderQueue();
           saveAndBroadcast();
 
-          if (!currentSong && isPlayerReady) {
+          // 若目前無歌曲播放，立即自動啟動播放
+          if ((!currentSong || !isPlaying) && isPlayerReady) {
             playNextSong();
+          } else if (!isPlayerReady) {
+            shouldAutoPlayWhenReady = true;
           }
 
           sync.sendResponse(clientId, {
@@ -858,6 +996,7 @@
             pending: true
           });
         }
+        return;
       }
 
       if (action === 'upvote_song') {
@@ -890,7 +1029,7 @@
           votesCount: song.votes.length
         });
       }
-    });
+    }
 
     // 處理老師遙控命令
     sync.on('admin_command', (cmd) => {
@@ -935,7 +1074,7 @@
             sortQueue();
             renderQueue();
             saveAndBroadcast();
-            if (!currentSong && isPlayerReady) playNextSong();
+            if ((!currentSong || !isPlaying) && isPlayerReady) playNextSong();
             sync.sendResponse(clientId, { reqId, success: true, message: '已准許並加入佇列' });
           }
           break;

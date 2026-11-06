@@ -19,7 +19,7 @@
         currentSong: null,
         queue: [],
         settings: {
-          maxDuration: 360,
+          maxDuration: 600, // 預設 10 分鐘，避免一般歌曲或長版 MV 被中斷切歌
           maxActivePerStudent: 2,
           allowDuplicates: false,
           autoApprove: true,
