@@ -741,7 +741,8 @@
 
     function triggerErrorSkip(code, reason) {
       if (currentSong) {
-        history.push({ ...currentSong, error: code, finishedAt: Date.now() });
+        history.push({ ...currentSong, error: code, reason: reason || 'error', finishedAt: Date.now() });
+        currentSong = null; // 避免 playNextSong 重複推入 history
       }
       playNextSong();
     }
