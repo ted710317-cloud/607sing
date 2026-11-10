@@ -7,7 +7,10 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
   <script src="cloud-sync.js"></script>
+  <script src="firebase-sync.js"></script>
   <style>
     body {
       background: radial-gradient(circle at top, #0f172a, #020617);
@@ -185,8 +188,20 @@
       localStorage.setItem('jukebox_client_id', myClientId);
     }
 
-    // 初始化雲端同步核心
+    // 初始化雲端同步核心 (MQTT + Firebase 雙核心)
     const sync = new CloudSync({ role: 'client', room: roomParam, clientId: myClientId });
+    const fb = new FirebaseSync({ role: 'client', room: roomParam });
+
+    // 監聽禁播黑名單
+    let blockedVideoIds = new Set();
+    if (fb.isReady) {
+      fb.watchBlacklist(items => {
+        blockedVideoIds = new Set(items.map(i => i.videoId));
+      });
+      fb.on('ready', () => {
+        connPill.textContent = '雙核心連線';
+      });
+    }
 
     // 歷史本地點歌紀錄
     let myHistory = JSON.parse(localStorage.getItem('jukebox_my_history') || '[]');
@@ -302,6 +317,12 @@
         return;
       }
 
+      // 檢查黑名單
+      if (blockedVideoIds.has(videoId)) {
+        showToast('⚠️ 此歌曲已被老師列為禁止點播，請換其他歌曲！', 'warning');
+        return;
+      }
+
       // 記憶座號與暱稱
       localStorage.setItem('jukebox_seat', seat);
       localStorage.setItem('jukebox_nickname', nickname);
@@ -348,7 +369,38 @@
 
           switchTab('queue');
         } else {
-          showToast(res.message, 'error');
+          // 若大螢幕未開啟且具備 Firebase 雲端支援，自動暫存至雲端非同步佇列
+          if (fb && fb.isReady && res.message && res.message.includes('大螢幕尚未接收到')) {
+            const offlineSong = {
+              id: 'song_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+              videoId,
+              url,
+              seat,
+              nickname,
+              note,
+              title: songTitle || `點播歌曲 (${videoId})`,
+              author: songAuthor || 'YouTube 頻道',
+              thumbnail: songThumb,
+              clientId: myClientId,
+              requester: (seat ? `座號 ${seat}` : (nickname || '匿名同學')).trim()
+            };
+            fb.pushOfflineRequest(offlineSong).then(ok => {
+              if (ok) {
+                showToast('✅ 大螢幕暫未開機，點歌已存入雲端！開機時將自動加入排隊～', 'success');
+                inputUrl.value = '';
+                inputNote.value = '';
+                previewCard.classList.add('hidden');
+                myHistory.unshift(offlineSong);
+                localStorage.setItem('jukebox_my_history', JSON.stringify(myHistory));
+                renderMySongs();
+                switchTab('my');
+              } else {
+                showToast(res.message, 'error');
+              }
+            });
+          } else {
+            showToast(res.message, 'error');
+          }
         }
       });
     });

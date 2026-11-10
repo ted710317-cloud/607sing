@@ -8,7 +8,10 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
   <script src="cloud-sync.js"></script>
+  <script src="firebase-sync.js"></script>
   <style>
     @keyframes pulse-glow {
       0%, 100% { box-shadow: 0 0 25px rgba(99, 102, 241, 0.35); }
@@ -353,8 +356,9 @@
     document.getElementById('room-badge').textContent = `房號: ${roomParam}`;
     document.getElementById('admin-link').href = `admin.html?room=${roomParam}`;
 
-    // 初始化雲端同步核心
+    // 初始化雲端同步核心 (MQTT + Firebase 雙核心)
     const sync = new CloudSync({ role: 'host', room: roomParam });
+    const fb = new FirebaseSync({ role: 'host', room: roomParam });
 
     // 本機狀態持久化恢復
     const STORAGE_KEY = `jukebox_host_state_${roomParam}`;
@@ -369,6 +373,39 @@
     let history = savedState ? (savedState.history || []) : [];
     let pendingApproval = savedState ? (savedState.pendingApproval || []) : [];
     let settings = savedState ? { ...sync.state.settings, ...savedState.settings } : sync.state.settings;
+
+    // 嘗試從 Firebase 雲端資料庫恢復最新狀態 (跨裝置/換電腦開大螢幕無縫接續)
+    if (fb.isReady) {
+      fb.loadRoomStateOnce().then(cloudState => {
+        if (cloudState && cloudState.updatedAt && (!savedState || cloudState.updatedAt > (savedState.updatedAt || 0))) {
+          console.log('[Firebase] 成功從雲端資料庫恢復班級點歌狀態！');
+          if (Array.isArray(cloudState.queue)) queue = cloudState.queue;
+          if (cloudState.settings) settings = { ...settings, ...cloudState.settings };
+          renderQueue();
+          saveAndBroadcast();
+        }
+      });
+
+      // 監聽離線暫存點播 (當學生在大螢幕未開啟時點的歌，大螢幕開機時自動匯入)
+      fb.watchPendingRequests((offlineReq, ack) => {
+        console.log('[Firebase] 收到離線暫存點歌，匯入處理中:', offlineReq.title);
+        handleSingleClientRequest({
+          action: 'request_song',
+          reqId: 'offline_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+          clientId: offlineReq.clientId || 'offline_client',
+          payload: offlineReq
+        });
+        if (ack) ack();
+      });
+    }
+
+    // 黑名單快取
+    let blockedVideoIds = new Set();
+    if (fb.isReady) {
+      fb.watchBlacklist(items => {
+        blockedVideoIds = new Set(items.map(i => i.videoId));
+      });
+    }
 
     let player = null;
     let isPlayerReady = false;
@@ -527,7 +564,7 @@
       });
     }
 
-    // 儲存狀態至 LocalStorage 並廣播至雲端
+    // 儲存狀態至 LocalStorage、MQTT 廣播並同步至 Firebase 雲端資料庫
     function saveAndBroadcast() {
       const stateToBroadcast = {
         currentSong,
@@ -541,6 +578,9 @@
         localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToBroadcast));
       } catch(e) {}
       sync.publishState(stateToBroadcast);
+      if (fb && fb.isReady) {
+        fb.saveRoomState(stateToBroadcast);
+      }
     }
 
     // 佇列排序
@@ -752,6 +792,9 @@
       if (skipTimer) clearInterval(skipTimer);
       if (currentSong) {
         history.push({ ...currentSong, finishedAt: Date.now() });
+        if (fb && fb.isReady) {
+          fb.recordSongPlay(currentSong);
+        }
       }
 
       if (queue.length > 0) {
@@ -860,7 +903,7 @@
     // 監聽雲端即時事件
     sync.on('connection_status', (status) => {
       if (status.connected) {
-        statusText.textContent = '雲端已連線';
+        statusText.textContent = (fb && fb.isReady) ? '雲端雙核心已連線' : '雲端已連線';
         saveAndBroadcast();
       } else {
         statusText.textContent = '重連中...';
@@ -903,6 +946,12 @@
 
         if (!videoId) {
           sync.sendResponse(clientId, { reqId, success: false, message: '無法識別此 YouTube 網址' });
+          return;
+        }
+
+        // 檢查雲端禁播黑名單
+        if (blockedVideoIds.has(videoId)) {
+          sync.sendResponse(clientId, { reqId, success: false, message: '此歌曲已被老師列為禁止點播，請點選其他歌曲！' });
           return;
         }
 

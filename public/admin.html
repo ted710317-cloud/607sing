@@ -7,7 +7,10 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
   <script src="cloud-sync.js"></script>
+  <script src="firebase-sync.js"></script>
   <style>
     body {
       background: radial-gradient(circle at top, #1e293b, #0f172a, #020617);
@@ -164,6 +167,40 @@
       </button>
     </section>
 
+    <!-- 班級點播熱門排行 TOP 10 (Firebase 雲端統計) -->
+    <section class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-xl backdrop-blur-sm">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+          <i class="fa-solid fa-ranking-star"></i> 班級點播熱門排行 TOP 10
+        </h2>
+        <button id="btn-refresh-top" class="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1">
+          <i class="fa-solid fa-rotate-right"></i> 重新整理
+        </button>
+      </div>
+      <div id="top-songs-list" class="space-y-2">
+        <div class="text-center py-4 text-slate-500 text-xs">載入排行榜中...</div>
+      </div>
+    </section>
+
+    <!-- 禁播黑名單管理 (Firebase 雲端同步) -->
+    <section class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-xl backdrop-blur-sm space-y-3">
+      <div class="flex items-center justify-between">
+        <h2 class="text-xs font-bold text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
+          <i class="fa-solid fa-ban"></i> 禁播黑名單管理
+        </h2>
+        <span class="text-[11px] text-slate-400">禁止特定惡搞或不當歌曲</span>
+      </div>
+      <div class="flex gap-2">
+        <input id="input-blacklist-url" type="text" placeholder="貼上要封鎖的 YouTube 網址或 11 碼影片 ID" class="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-rose-500 font-mono" />
+        <button id="btn-add-blacklist" class="px-3.5 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold shrink-0 transition">
+          加入封鎖
+        </button>
+      </div>
+      <div id="blacklist-items" class="space-y-2 pt-1">
+        <div class="text-center py-3 text-slate-500 text-xs">目前無黑名單歌曲</div>
+      </div>
+    </section>
+
     <!-- 危險操作區 -->
     <section class="bg-red-950/20 border border-red-500/30 rounded-2xl p-5 shadow-xl">
       <h2 class="text-xs font-bold text-red-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
@@ -184,6 +221,7 @@
 
     let adminPassword = localStorage.getItem('jukebox_admin_pwd') || 'admin888';
     const sync = new CloudSync({ role: 'admin', room: roomParam });
+    const fb = new FirebaseSync({ role: 'admin', room: roomParam });
 
     // DOM 節點
     const loginModal = document.getElementById('login-modal');
@@ -328,6 +366,99 @@
 
       renderPending(data.pendingApproval);
     });
+
+    // === Firebase 雲端排行榜與黑名單管理 ===
+    const topSongsList = document.getElementById('top-songs-list');
+    const btnRefreshTop = document.getElementById('btn-refresh-top');
+    const inputBlacklistUrl = document.getElementById('input-blacklist-url');
+    const btnAddBlacklist = document.getElementById('btn-add-blacklist');
+    const blacklistItems = document.getElementById('blacklist-items');
+
+    function loadTopSongs() {
+      if (!fb.isReady) {
+        topSongsList.innerHTML = '<div class="text-center py-4 text-slate-500 text-xs">需啟用 Firebase 方可檢視全班累計排行榜</div>';
+        return;
+      }
+      topSongsList.innerHTML = '<div class="text-center py-4 text-slate-500 text-xs"><i class="fa-solid fa-spinner animate-spin"></i> 載入中...</div>';
+      fb.getTopSongs((list) => {
+        if (!list || list.length === 0) {
+          topSongsList.innerHTML = '<div class="text-center py-4 text-slate-500 text-xs">目前尚無累計點播紀錄</div>';
+          return;
+        }
+        topSongsList.innerHTML = list.map((song, idx) => `
+          <div class="flex items-center gap-3 p-2 bg-slate-950/70 border border-slate-800 rounded-xl">
+            <span class="w-5 text-center font-bold text-xs ${idx < 3 ? 'text-amber-400 font-extrabold' : 'text-slate-400'}">#${idx + 1}</span>
+            <img src="${song.thumbnail || ''}" class="w-12 h-9 object-cover rounded-lg border border-slate-800 flex-shrink-0" />
+            <div class="min-w-0 flex-1">
+              <h4 class="text-xs font-bold text-white truncate">${song.title}</h4>
+              <p class="text-[10px] text-slate-400 truncate">${song.author || ''}</p>
+            </div>
+            <div class="text-right shrink-0">
+              <span class="px-2 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-full text-[11px] font-bold">
+                ${song.count || 1} 次
+              </span>
+            </div>
+          </div>
+        `).join('');
+      });
+    }
+
+    if (btnRefreshTop) btnRefreshTop.addEventListener('click', loadTopSongs);
+
+    // 黑名單管理
+    if (btnAddBlacklist) {
+      btnAddBlacklist.addEventListener('click', async () => {
+        const urlOrId = inputBlacklistUrl.value.trim();
+        if (!urlOrId) return alert('請輸入 YouTube 網址或影片 ID');
+        const videoId = YTUtils.extractVideoId(urlOrId);
+        if (!videoId) return alert('無法辨別該 YouTube 網址格式');
+
+        btnAddBlacklist.disabled = true;
+        btnAddBlacklist.textContent = '加入中...';
+        const meta = await YTUtils.fetchMetadata(videoId);
+        const title = meta && meta.title ? meta.title : `影片 (${videoId})`;
+
+        fb.addToBlacklist(videoId, title, '老師設定禁播').then(ok => {
+          btnAddBlacklist.disabled = false;
+          btnAddBlacklist.textContent = '加入封鎖';
+          if (ok) {
+            alert(`已成功將《${title}》加入禁播黑名單！全班即刻生效。`);
+            inputBlacklistUrl.value = '';
+          } else {
+            alert('加入黑名單失敗，請檢查 Firebase 規則設定。');
+          }
+        });
+      });
+    }
+
+    window.removeBlacklist = function(videoId) {
+      if (confirm('確定要解除此歌曲的封鎖嗎？')) {
+        fb.removeFromBlacklist(videoId).then(ok => {
+          if (!ok) alert('解除失敗，請確認 Firebase 連線與權限。');
+        });
+      }
+    };
+
+    if (fb.isReady) {
+      loadTopSongs();
+      fb.watchBlacklist((items) => {
+        if (!items || items.length === 0) {
+          blacklistItems.innerHTML = '<div class="text-center py-3 text-slate-500 text-xs">目前無黑名單歌曲</div>';
+          return;
+        }
+        blacklistItems.innerHTML = items.map((item) => `
+          <div class="flex items-center justify-between p-2.5 bg-slate-950/70 border border-rose-950/40 rounded-xl">
+            <div class="min-w-0 flex-1 pr-2">
+              <div class="text-xs font-bold text-rose-300 truncate">${item.title || item.videoId}</div>
+              <div class="text-[10px] text-slate-400">ID: ${item.videoId} • ${item.reason || '禁播'}</div>
+            </div>
+            <button onclick="removeBlacklist('${item.videoId}')" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg text-xs font-semibold transition border border-slate-700">
+              解除封鎖
+            </button>
+          </div>
+        `).join('');
+      });
+    }
   </script>
 </body>
 </html>
