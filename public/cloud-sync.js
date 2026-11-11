@@ -23,6 +23,7 @@
           maxActivePerStudent: 2,
           allowDuplicates: false,
           autoApprove: true,
+          autoPlayNext: false, // 預設關閉自動連播，改由老師手動播放與暫停
           playMode: 'fifo',
           adminPassword: 'admin888'
         }

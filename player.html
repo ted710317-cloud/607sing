@@ -62,7 +62,7 @@
       </div>
       <h2 class="text-2xl md:text-3xl font-extrabold text-white mb-3">啟動「羚藝汽泡水的點歌坊」</h2>
       <p class="text-slate-300 text-sm md:text-base mb-6 leading-relaxed">
-        因瀏覽器音訊安全規範，請點擊下方按鈕以啟動大螢幕播放與自動連播功能。
+        因瀏覽器音訊安全規範，請點擊下方按鈕以啟動大螢幕播放器功能。預設為「手動播放模式」，不會在上課期間自動連播打擾學生！
       </p>
       <button id="btn-start-player" class="w-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 hover:from-indigo-600 hover:to-pink-600 text-white font-bold py-3.5 px-8 rounded-xl shadow-lg transition-transform transform active:scale-95 text-base tracking-wide flex items-center justify-center gap-3">
         <i class="fa-solid fa-headphones-simple"></i>
@@ -208,15 +208,19 @@
           </div>
         </div>
 
-        <!-- 空佇列等待畫面 -->
-        <div id="idle-screen" class="absolute inset-0 bg-slate-900/90 flex flex-col items-center justify-center text-center p-6">
+        <!-- 待機與手動等候畫面 -->
+        <div id="idle-screen" class="absolute inset-0 bg-slate-900/95 flex flex-col items-center justify-center text-center p-6">
           <div class="w-20 h-20 rounded-full bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400 text-3xl mb-4">
-            <i class="fa-solid fa-music"></i>
+            <i id="idle-icon" class="fa-solid fa-music"></i>
           </div>
-          <h3 class="text-2xl font-bold text-white mb-2">等候點歌中</h3>
-          <p class="text-sm text-slate-400 max-w-sm mb-4">
+          <h3 id="idle-title" class="text-2xl font-bold text-white mb-2">等候點歌中</h3>
+          <p id="idle-desc" class="text-sm text-slate-400 max-w-md mb-5">
             清單中目前沒有待播歌曲，拿起手機掃描右上角的 QR 碼即可點歌！
           </p>
+          <button id="btn-idle-play-next" class="hidden px-6 py-3 rounded-2xl bg-gradient-to-r from-indigo-500 to-pink-500 hover:from-indigo-600 hover:to-pink-600 text-white font-bold text-sm shadow-xl transition transform active:scale-95 flex items-center gap-2">
+            <i class="fa-solid fa-play"></i>
+            <span id="btn-idle-play-text">立即播放第一首</span>
+          </button>
         </div>
       </div>
 
@@ -244,7 +248,7 @@
 
       <!-- 快速清空按鈕（老師用） -->
       <div class="pt-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
-        <span>💡 點擊歌曲旁 ❌ 可直接剔除</span>
+        <span>💡 點擊 ▶ 立即播歌，❌ 可剔除</span>
         <button id="btn-quick-clear" class="text-slate-400 hover:text-red-400 transition-colors">
           清空佇列
         </button>
@@ -256,20 +260,25 @@
   <!-- 底部懸浮老師控制列 (Master Toolbar) -->
   <footer class="sticky bottom-0 z-30 bg-slate-900/90 border-t border-slate-800 backdrop-blur-lg px-6 py-3 flex items-center justify-between shadow-2xl">
     <div class="flex items-center gap-3">
-      <button id="btn-toggle-play" class="w-11 h-11 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white flex items-center justify-center transition active:scale-95 shadow-md">
-        <i class="fa-solid fa-pause text-base"></i>
+      <button id="btn-toggle-play" class="w-11 h-11 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white flex items-center justify-center transition active:scale-95 shadow-md" title="播放 / 暫停 (空白鍵)">
+        <i class="fa-solid fa-play text-base ml-0.5"></i>
       </button>
 
       <button id="btn-skip-song" class="w-11 h-11 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center transition active:scale-95 border border-slate-700" title="切下一首 (N)">
         <i class="fa-solid fa-forward-step text-base"></i>
       </button>
 
-      <div class="hidden sm:flex items-center gap-2 ml-2 bg-slate-800/80 px-3 py-2 rounded-xl border border-slate-700">
+      <div class="hidden sm:flex items-center gap-2 ml-1 bg-slate-800/80 px-3 py-2 rounded-xl border border-slate-700">
         <button id="btn-mute" class="text-slate-400 hover:text-white transition">
           <i class="fa-solid fa-volume-high text-sm"></i>
         </button>
         <input id="volume-slider" type="range" min="0" max="100" value="80" class="w-20 md:w-28 h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500">
       </div>
+
+      <button id="btn-toggle-autoplay" class="px-3 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 text-xs font-bold flex items-center gap-1.5 transition active:scale-95" title="切換手動播放 / 自動連播模式">
+        <i class="fa-solid fa-hand"></i>
+        <span id="autoplay-mode-label">手動播放</span>
+      </button>
     </div>
 
     <div class="hidden md:flex items-center gap-4 text-xs text-slate-400">
@@ -373,6 +382,7 @@
     let history = savedState ? (savedState.history || []) : [];
     let pendingApproval = savedState ? (savedState.pendingApproval || []) : [];
     let settings = savedState ? { ...sync.state.settings, ...savedState.settings } : sync.state.settings;
+    settings.autoPlayNext = Boolean(settings.autoPlayNext);
 
     // 嘗試從 Firebase 雲端資料庫恢復最新狀態 (跨裝置/換電腦開大螢幕無縫接續)
     if (fb.isReady) {
@@ -380,8 +390,13 @@
         if (cloudState && cloudState.updatedAt && (!savedState || cloudState.updatedAt > (savedState.updatedAt || 0))) {
           console.log('[Firebase] 成功從雲端資料庫恢復班級點歌狀態！');
           if (Array.isArray(cloudState.queue)) queue = cloudState.queue;
-          if (cloudState.settings) settings = { ...settings, ...cloudState.settings };
+          if (cloudState.settings) {
+            settings = { ...settings, ...cloudState.settings };
+            settings.autoPlayNext = Boolean(settings.autoPlayNext);
+          }
+          updateAutoPlayUI();
           renderQueue();
+          updateIdleScreen();
           saveAndBroadcast();
         }
       });
@@ -434,6 +449,10 @@
     const queueCountText = document.getElementById('queue-count-text');
     const modeText = document.getElementById('mode-text');
     const idleScreen = document.getElementById('idle-screen');
+    const idleTitle = document.getElementById('idle-title');
+    const idleDesc = document.getElementById('idle-desc');
+    const btnIdlePlayNext = document.getElementById('btn-idle-play-next');
+    const btnIdlePlayText = document.getElementById('btn-idle-play-text');
     const errorAlert = document.getElementById('error-alert');
     const errorTitle = document.getElementById('error-title');
     const errorDesc = document.getElementById('error-desc');
@@ -445,6 +464,8 @@
     const btnSkipSong = document.getElementById('btn-skip-song');
     const btnMute = document.getElementById('btn-mute');
     const volumeSlider = document.getElementById('volume-slider');
+    const btnToggleAutoplay = document.getElementById('btn-toggle-autoplay');
+    const autoplayModeLabel = document.getElementById('autoplay-mode-label');
     const btnFullscreen = document.getElementById('btn-fullscreen');
     const btnQuickClear = document.getElementById('btn-quick-clear');
 
@@ -568,6 +589,7 @@
     function saveAndBroadcast() {
       const stateToBroadcast = {
         currentSong,
+        isPlaying,
         queue,
         history: history.slice(-20),
         pendingApproval,
@@ -581,6 +603,77 @@
       if (fb && fb.isReady) {
         fb.saveRoomState(stateToBroadcast);
       }
+    }
+
+    // 更新手動 / 自動連播模式 UI
+    function updateAutoPlayUI() {
+      const sortLabel = settings.playMode === 'votes' ? '按讚優先' : '依點歌順序';
+      if (settings.autoPlayNext) {
+        modeText.textContent = `自動連播模式 · ${sortLabel}`;
+        if (btnToggleAutoplay) {
+          btnToggleAutoplay.className = 'px-3 py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/40 text-xs font-bold flex items-center gap-1.5 transition active:scale-95';
+          btnToggleAutoplay.innerHTML = '<i class="fa-solid fa-repeat"></i><span id="autoplay-mode-label">自動連播中</span>';
+        }
+      } else {
+        modeText.textContent = `手動播放模式 (不自動連播) · ${sortLabel}`;
+        if (btnToggleAutoplay) {
+          btnToggleAutoplay.className = 'px-3 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 text-xs font-bold flex items-center gap-1.5 transition active:scale-95';
+          btnToggleAutoplay.innerHTML = '<i class="fa-solid fa-hand"></i><span id="autoplay-mode-label">手動播放</span>';
+        }
+      }
+    }
+
+    // 更新待機畫面（若有待播歌曲，提供一鍵播放提示）
+    function updateIdleScreen() {
+      if (currentSong) {
+        idleScreen.classList.add('hidden');
+        return;
+      }
+      idleScreen.classList.remove('hidden');
+      if (queue.length > 0) {
+        idleTitle.textContent = `待播清單已有 ${queue.length} 首歌曲等候播放`;
+        idleDesc.textContent = settings.autoPlayNext
+          ? '準備就緒，點擊下方按鈕或播放鍵即可立即開播！'
+          : '目前為「手動播放模式」，不會自動一直播放，由老師點擊下方播放鍵或選曲決定何時開播。';
+        btnIdlePlayNext.classList.remove('hidden');
+        btnIdlePlayText.textContent = `開始播放第一首：${queue[0].title}`;
+      } else {
+        idleTitle.textContent = '等候點歌中';
+        idleDesc.textContent = '清單中目前沒有待播歌曲，拿起手機掃描右上角的 QR 碼即可點歌！';
+        btnIdlePlayNext.classList.add('hidden');
+      }
+    }
+
+    // 停止播放並回到待機狀態（不自動接續下一首）
+    function enterIdleState() {
+      if (currentSong) {
+        history.push({ ...currentSong, finishedAt: Date.now() });
+        if (fb && fb.isReady) {
+          fb.recordSongPlay(currentSong);
+        }
+      }
+      currentSong = null;
+      isPlaying = false;
+      hidePlayPrompt();
+      if (skipTimer) clearInterval(skipTimer);
+      stopProgressTimer();
+      songTime.textContent = '00:00 / 00:00';
+      progressBar.style.width = '0%';
+      btnTogglePlay.innerHTML = '<i class="fa-solid fa-play text-base ml-0.5"></i>';
+      equalizer.classList.add('eq-paused');
+
+      if (player && isPlayerReady && typeof player.stopVideo === 'function') {
+        player.stopVideo();
+      }
+
+      currentSongTitle.textContent = '目前暫無播放歌曲';
+      currentSongAuthor.textContent = queue.length > 0 ? '點擊播放鍵或右側清單任一首歌開始播放' : '請掃描右上方 QR Code 點播';
+      requesterTag.textContent = '來自同學點播';
+      requesterNote.textContent = queue.length > 0 ? '「歌曲已排入清單，等候老師手動開始播放～」' : '「下課時間到囉！聽首歌放鬆一下吧～」';
+
+      updateIdleScreen();
+      renderQueue();
+      saveAndBroadcast();
     }
 
     // 佇列排序
@@ -602,8 +695,10 @@
 
       if (currentSong && player && isPlayerReady && typeof player.playVideo === 'function') {
         player.playVideo();
-      } else if ((!currentSong || !isPlaying) && queue.length > 0) {
+      } else if (settings.autoPlayNext && !currentSong && queue.length > 0) {
         playNextSong();
+      } else {
+        updateIdleScreen();
       }
     }
 
@@ -615,6 +710,21 @@
     }
     if (autoplayModal) {
       autoplayModal.addEventListener('click', unlockAutoplay);
+    }
+
+    if (btnIdlePlayNext) {
+      btnIdlePlayNext.addEventListener('click', () => {
+        playNextSong();
+      });
+    }
+
+    if (btnToggleAutoplay) {
+      btnToggleAutoplay.addEventListener('click', () => {
+        settings.autoPlayNext = !settings.autoPlayNext;
+        updateAutoPlayUI();
+        updateIdleScreen();
+        saveAndBroadcast();
+      });
     }
 
     // 播放提示 (當瀏覽器限制自動播放時，點擊直接開播)
@@ -646,7 +756,11 @@
       btnSkipErrorNow.addEventListener('click', () => {
         if (skipTimer) clearInterval(skipTimer);
         errorAlert.classList.add('hidden');
-        triggerErrorSkip('manual_skip');
+        if (currentSong) {
+          history.push({ ...currentSong, error: 'manual_skip', reason: 'manual_skip', finishedAt: Date.now() });
+          currentSong = null;
+        }
+        playNextSong();
       });
     }
 
@@ -688,9 +802,11 @@
 
       if (currentSong) {
         loadSongIntoPlayer(currentSong);
-      } else if (shouldAutoPlayWhenReady || queue.length > 0) {
+      } else if (shouldAutoPlayWhenReady || (settings.autoPlayNext && queue.length > 0)) {
         shouldAutoPlayWhenReady = false;
         playNextSong();
+      } else {
+        updateIdleScreen();
       }
     }
 
@@ -729,22 +845,29 @@
         } catch (e) {}
 
         startProgressTimer();
+        saveAndBroadcast();
       } else if (event.data === YT.PlayerState.CUED || event.data === 5) {
-        // 影片載入完成，若處於 CUED 狀態主動觸發播放
-        if (player && typeof player.playVideo === 'function') {
+        // 影片載入完成且確定有指定播放歌曲時，觸發播放
+        if (currentSong && player && typeof player.playVideo === 'function') {
           player.playVideo();
+          schedulePlayPrompt();
         }
-        schedulePlayPrompt();
       } else if (event.data === YT.PlayerState.PAUSED) {
         isPlaying = false;
         btnTogglePlay.innerHTML = '<i class="fa-solid fa-play text-base ml-0.5"></i>';
         equalizer.classList.add('eq-paused');
         stopProgressTimer();
+        saveAndBroadcast();
       } else if (event.data === YT.PlayerState.ENDED) {
         isPlaying = false;
         hidePlayPrompt();
         stopProgressTimer();
-        playNextSong();
+        if (settings.autoPlayNext) {
+          playNextSong();
+        } else {
+          // 手動播放模式：播完即停止，不自動連續播放下一首
+          enterIdleState();
+        }
       }
     }
 
@@ -761,16 +884,19 @@
         errorDesc.textContent = '該 YouTube 網址參數不正確或影片已被移除。';
       } else {
         errorTitle.textContent = '播放發生錯誤';
-        errorDesc.textContent = `錯誤代碼 (${code})，即將為您跳至下一首。`;
+        errorDesc.textContent = `錯誤代碼 (${code})，無法載入此影片。`;
       }
 
       let count = 3;
-      countdownText.textContent = `將在 ${count} 秒後自動切換至下一首...`;
+      const getMsg = (c) => settings.autoPlayNext
+        ? `將在 ${c} 秒後自動切換至下一首...`
+        : `將在 ${c} 秒後關閉提示（手動模式不自動播下一首）...`;
+      countdownText.textContent = getMsg(count);
       if (skipTimer) clearInterval(skipTimer);
       skipTimer = setInterval(() => {
         count--;
         if (count > 0) {
-          countdownText.textContent = `將在 ${count} 秒後自動切換至下一首...`;
+          countdownText.textContent = getMsg(count);
         } else {
           clearInterval(skipTimer);
           errorAlert.classList.add('hidden');
@@ -782,9 +908,13 @@
     function triggerErrorSkip(code, reason) {
       if (currentSong) {
         history.push({ ...currentSong, error: code, reason: reason || 'error', finishedAt: Date.now() });
-        currentSong = null; // 避免 playNextSong 重複推入 history
+        currentSong = null; // 避免重複推入 history
       }
-      playNextSong();
+      if (settings.autoPlayNext) {
+        playNextSong();
+      } else {
+        enterIdleState();
+      }
     }
 
     function playNextSong() {
@@ -800,21 +930,44 @@
       if (queue.length > 0) {
         currentSong = queue.shift();
         loadSongIntoPlayer(currentSong);
+        renderQueue();
+        saveAndBroadcast();
       } else {
         currentSong = null;
-        isPlaying = false;
-        idleScreen.classList.remove('hidden');
-        if (player && isPlayerReady && typeof player.stopVideo === 'function') {
-          player.stopVideo();
-        }
-        stopProgressTimer();
-        currentSongTitle.textContent = '目前暫無播放歌曲';
-        currentSongAuthor.textContent = '請掃描右上方 QR Code 點播';
-        requesterNote.textContent = '「下課時間到囉！聽首歌放鬆一下吧～」';
+        enterIdleState();
       }
+    }
 
+    window.playSpecificSong = function(songId) {
+      const idx = queue.findIndex(s => s.id === songId);
+      if (idx === -1) return;
+      hidePlayPrompt();
+      if (skipTimer) clearInterval(skipTimer);
+      if (currentSong) {
+        history.push({ ...currentSong, finishedAt: Date.now() });
+        if (fb && fb.isReady) {
+          fb.recordSongPlay(currentSong);
+        }
+      }
+      currentSong = queue.splice(idx, 1)[0];
+      loadSongIntoPlayer(currentSong);
       renderQueue();
       saveAndBroadcast();
+    };
+
+    function togglePlayPause() {
+      if (!currentSong) {
+        if (queue.length > 0) {
+          playNextSong();
+        }
+        return;
+      }
+      if (!player || !isPlayerReady) return;
+      if (isPlaying) {
+        player.pauseVideo();
+      } else {
+        player.playVideo();
+      }
     }
 
     function loadSongIntoPlayer(song) {
@@ -857,6 +1010,7 @@
     function renderQueue() {
       queueBadge.textContent = `${queue.length} 首`;
       queueCountText.textContent = `待播：${queue.length} 首`;
+      updateIdleScreen();
 
       if (queue.length === 0) {
         queueList.innerHTML = `
@@ -874,7 +1028,7 @@
             ${index + 1}
           </span>
           <img src="${song.thumbnail}" alt="縮圖" class="w-14 h-10 object-cover rounded-lg border border-slate-700 flex-shrink-0" />
-          <div class="flex-1 min-w-0 pr-2">
+          <div class="flex-1 min-w-0 pr-1">
             <h4 class="text-xs font-bold text-white truncate group-hover:text-indigo-300 transition-colors">
               ${song.title}
             </h4>
@@ -884,9 +1038,14 @@
               ${song.votes && song.votes.length > 0 ? `<span class="text-indigo-400 font-bold">👍 ${song.votes.length}</span>` : ''}
             </div>
           </div>
-          <button onclick="removeSongFromQueue('${song.id}')" class="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-400 p-2 rounded-lg transition-all" title="移除此歌">
-            <i class="fa-solid fa-xmark text-sm"></i>
-          </button>
+          <div class="flex items-center gap-1 shrink-0">
+            <button onclick="playSpecificSong('${song.id}')" class="w-8 h-8 rounded-lg bg-indigo-500/20 hover:bg-indigo-600 text-indigo-300 hover:text-white flex items-center justify-center transition-all" title="立即播放此歌">
+              <i class="fa-solid fa-play text-xs ml-0.5"></i>
+            </button>
+            <button onclick="removeSongFromQueue('${song.id}')" class="w-8 h-8 rounded-lg text-slate-400 hover:bg-red-500/20 hover:text-red-400 flex items-center justify-center transition-all" title="移除此歌">
+              <i class="fa-solid fa-xmark text-sm"></i>
+            </button>
+          </div>
         </div>
       `).join('');
     }
@@ -1022,11 +1181,13 @@
           renderQueue();
           saveAndBroadcast();
 
-          // 若目前無歌曲播放，立即自動啟動播放
-          if ((!currentSong || !isPlaying) && isPlayerReady) {
-            playNextSong();
-          } else if (!isPlayerReady) {
-            shouldAutoPlayWhenReady = true;
+          // 僅在「自動連播模式」開啟且目前無指定播放歌曲時自動開播；手動模式或暫停狀態不自動播放
+          if (settings.autoPlayNext && !currentSong) {
+            if (isPlayerReady) {
+              playNextSong();
+            } else {
+              shouldAutoPlayWhenReady = true;
+            }
           }
 
           sync.sendResponse(clientId, {
@@ -1097,12 +1258,8 @@
           break;
 
         case 'play_pause':
-          if (isPlaying) {
-            player.pauseVideo();
-          } else {
-            player.playVideo();
-          }
-          sync.sendResponse(clientId, { reqId, success: true });
+          togglePlayPause();
+          sync.sendResponse(clientId, { reqId, success: true, isPlaying });
           break;
 
         case 'set_volume':
@@ -1124,7 +1281,7 @@
             sortQueue();
             renderQueue();
             saveAndBroadcast();
-            if ((!currentSong || !isPlaying) && isPlayerReady) playNextSong();
+            if (settings.autoPlayNext && !currentSong && isPlayerReady) playNextSong();
             sync.sendResponse(clientId, { reqId, success: true, message: '已准許並加入佇列' });
           }
           break;
@@ -1151,10 +1308,16 @@
           if (payload.maxDuration !== undefined) settings.maxDuration = parseInt(payload.maxDuration, 10);
           if (payload.maxActivePerStudent !== undefined) settings.maxActivePerStudent = parseInt(payload.maxActivePerStudent, 10);
           if (payload.autoApprove !== undefined) settings.autoApprove = Boolean(payload.autoApprove);
+          if (payload.autoPlayNext !== undefined) {
+            settings.autoPlayNext = Boolean(payload.autoPlayNext);
+            updateAutoPlayUI();
+            updateIdleScreen();
+          }
           if (payload.playMode !== undefined) {
             settings.playMode = payload.playMode;
             sortQueue();
             renderQueue();
+            updateAutoPlayUI();
           }
           if (payload.newPassword) settings.adminPassword = payload.newPassword;
           saveAndBroadcast();
@@ -1165,12 +1328,7 @@
 
     // 播放/暫停按鈕
     btnTogglePlay.addEventListener('click', () => {
-      if (!player || !isPlayerReady) return;
-      if (isPlaying) {
-        player.pauseVideo();
-      } else {
-        player.playVideo();
-      }
+      togglePlayPause();
     });
 
     // 切下一首按鈕
@@ -1239,7 +1397,9 @@
     });
 
     // 初始渲染
+    updateAutoPlayUI();
     renderQueue();
+    updateIdleScreen();
     if (currentSong) {
       currentSongTitle.textContent = currentSong.title;
       currentSongAuthor.textContent = currentSong.author || 'YouTube 創作者';

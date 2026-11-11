@@ -121,8 +121,8 @@
         <select id="setting-max-duration" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500">
           <option value="180">3 分鐘 (180秒) - 快節奏下課</option>
           <option value="300">5 分鐘 (300秒) - 一般標準</option>
-          <option value="360" selected>6 分鐘 (360秒) - 推薦設定</option>
-          <option value="600">10 分鐘 (600秒) - 寬鬆</option>
+          <option value="360">6 分鐘 (360秒) - 一般歌曲</option>
+          <option value="600" selected>10 分鐘 (600秒) - 推薦設定</option>
           <option value="0">無限制 (不建議)</option>
         </select>
       </div>
@@ -135,6 +135,17 @@
           <option value="3">3 首</option>
           <option value="5">5 首</option>
         </select>
+      </div>
+
+      <div class="flex items-center justify-between pt-1">
+        <div>
+          <div class="text-xs font-bold text-white">自動連續播放模式</div>
+          <div class="text-[11px] text-slate-400">關閉時（預設）每首播完即停止，需手動按播放才繼續，避免上課一直播</div>
+        </div>
+        <label class="relative inline-flex items-center cursor-pointer">
+          <input id="setting-auto-play-next" type="checkbox" class="sr-only peer">
+          <div class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+        </label>
       </div>
 
       <div class="flex items-center justify-between pt-1">
@@ -243,6 +254,7 @@
     const settingMaxDuration = document.getElementById('setting-max-duration');
     const settingMaxPerStudent = document.getElementById('setting-max-per-student');
     const settingAutoApprove = document.getElementById('setting-auto-approve');
+    const settingAutoPlayNext = document.getElementById('setting-auto-play-next');
     const btnSaveSettings = document.getElementById('btn-save-settings');
 
     // 驗證登入
@@ -287,12 +299,14 @@
       const maxDuration = settingMaxDuration.value;
       const maxActivePerStudent = settingMaxPerStudent.value;
       const autoApprove = settingAutoApprove.checked;
+      const autoPlayNext = settingAutoPlayNext.checked;
       const playMode = document.querySelector('input[name="playMode"]:checked').value;
 
       sync.sendAdmin('update_settings', adminPassword, {
         maxDuration,
         maxActivePerStudent,
         autoApprove,
+        autoPlayNext,
         playMode
       }, (res) => {
         if (res.success) {
@@ -352,14 +366,21 @@
         adminCurrentRequester.textContent = `點播人：${data.currentSong.requester}`;
       } else {
         adminCurrentThumb.src = '';
-        adminCurrentTitle.textContent = '暫無播放歌曲';
+        adminCurrentTitle.textContent = data.queue && data.queue.length > 0 ? `待機中（清單有 ${data.queue.length} 首）` : '暫無播放歌曲';
         adminCurrentRequester.textContent = '點播人：--';
+      }
+
+      if (data.isPlaying) {
+        btnAdminPlayPause.innerHTML = '<i class="fa-solid fa-pause"></i> <span>暫停播放</span>';
+      } else {
+        btnAdminPlayPause.innerHTML = '<i class="fa-solid fa-play"></i> <span>開始播放</span>';
       }
 
       if (data.settings) {
         settingMaxDuration.value = data.settings.maxDuration;
         settingMaxPerStudent.value = data.settings.maxActivePerStudent;
         settingAutoApprove.checked = data.settings.autoApprove;
+        settingAutoPlayNext.checked = Boolean(data.settings.autoPlayNext);
         const modeRadio = document.querySelector(`input[name="playMode"][value="${data.settings.playMode}"]`);
         if (modeRadio) modeRadio.checked = true;
       }
