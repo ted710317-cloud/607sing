@@ -38,7 +38,7 @@
   <main class="max-w-4xl mx-auto w-full grid grid-cols-1 md:grid-cols-3 gap-6 my-auto">
 
     <!-- Card 1: 大螢幕播放端 -->
-    <a href="player.html" class="group relative bg-slate-800/60 border border-slate-700/80 hover:border-indigo-500 p-6 rounded-2xl transition-all duration-300 hover:shadow-2xl hover:shadow-indigo-500/20 hover:-translate-y-1.5 flex flex-col justify-between backdrop-blur-md">
+    <a id="card-player" href="player.html?room=607" class="group relative bg-slate-800/60 border border-slate-700/80 hover:border-indigo-500 p-6 rounded-2xl transition-all duration-300 hover:shadow-2xl hover:shadow-indigo-500/20 hover:-translate-y-1.5 flex flex-col justify-between backdrop-blur-md">
       <div>
         <div class="w-14 h-14 rounded-2xl bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 text-2xl mb-4 group-hover:scale-110 group-hover:bg-indigo-600 group-hover:text-white transition-all">
           <i class="fa-solid fa-display"></i>
@@ -60,7 +60,7 @@
     </a>
 
     <!-- Card 2: 學生點歌端 -->
-    <a href="request.html" class="group relative bg-slate-800/60 border border-slate-700/80 hover:border-pink-500 p-6 rounded-2xl transition-all duration-300 hover:shadow-2xl hover:shadow-pink-500/20 hover:-translate-y-1.5 flex flex-col justify-between backdrop-blur-md">
+    <a id="card-request" href="request.html?room=607" class="group relative bg-slate-800/60 border border-slate-700/80 hover:border-pink-500 p-6 rounded-2xl transition-all duration-300 hover:shadow-2xl hover:shadow-pink-500/20 hover:-translate-y-1.5 flex flex-col justify-between backdrop-blur-md">
       <div class="absolute -top-3 right-4 bg-gradient-to-r from-pink-500 to-rose-500 text-white text-[11px] font-bold px-3 py-0.5 rounded-full shadow-lg">
         學生掃碼專用
       </div>
@@ -85,7 +85,7 @@
     </a>
 
     <!-- Card 3: 老師行動遙控 -->
-    <a href="admin.html" class="group relative bg-slate-800/60 border border-slate-700/80 hover:border-emerald-500 p-6 rounded-2xl transition-all duration-300 hover:shadow-2xl hover:shadow-emerald-500/20 hover:-translate-y-1.5 flex flex-col justify-between backdrop-blur-md">
+    <a id="card-admin" href="admin.html?room=607" class="group relative bg-slate-800/60 border border-slate-700/80 hover:border-emerald-500 p-6 rounded-2xl transition-all duration-300 hover:shadow-2xl hover:shadow-emerald-500/20 hover:-translate-y-1.5 flex flex-col justify-between backdrop-blur-md">
       <div>
         <div class="w-14 h-14 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 text-2xl mb-4 group-hover:scale-110 group-hover:bg-emerald-600 group-hover:text-white transition-all">
           <i class="fa-solid fa-sliders"></i>
@@ -146,6 +146,14 @@
     const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl : baseUrl + '/';
     const roomParam = new URLSearchParams(window.location.search).get('room') || '607';
     const studentUrl = `${cleanBaseUrl}request.html?room=${roomParam}`;
+
+    // 動態綁定首頁卡片房號參數
+    const cardPlayer = document.getElementById('card-player');
+    const cardRequest = document.getElementById('card-request');
+    const cardAdmin = document.getElementById('card-admin');
+    if (cardPlayer) cardPlayer.href = `player.html?room=${roomParam}`;
+    if (cardRequest) cardRequest.href = `request.html?room=${roomParam}`;
+    if (cardAdmin) cardAdmin.href = `admin.html?room=${roomParam}`;
 
     const linkEl = document.getElementById('student-link');
     linkEl.href = studentUrl;

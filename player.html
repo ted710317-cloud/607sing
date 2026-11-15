@@ -68,6 +68,9 @@
         <i class="fa-solid fa-headphones-simple"></i>
         <span>進入點播大螢幕</span>
       </button>
+      <p class="text-xs text-slate-400 mt-3 flex items-center justify-center gap-1.5">
+        <i class="fa-solid fa-hand-pointer"></i> 點擊此按鈕或螢幕任一處即可進入大螢幕
+      </p>
     </div>
   </div>
 
@@ -684,18 +687,31 @@
       }
     }
 
-    // 點擊解鎖 Autoplay（點擊按鈕或遮罩任一處皆可解鎖進入）
-    function unlockAutoplay() {
-      if (!autoplayModal || autoplayModal.classList.contains('hidden')) return;
-      autoplayModal.style.opacity = '0';
-      autoplayModal.style.pointerEvents = 'none';
-      setTimeout(() => {
+    // 檢查本次工作階段是否已解鎖過大螢幕
+    if (sessionStorage.getItem('jukebox_unlocked') === 'true') {
+      if (autoplayModal) {
         autoplayModal.classList.add('hidden');
         autoplayModal.classList.remove('flex');
-      }, 400);
+        autoplayModal.style.display = 'none';
+        autoplayModal.style.pointerEvents = 'none';
+      }
+    }
+
+    // 點擊解鎖 Autoplay（點擊按鈕、觸控螢幕任一處或按 Enter/Space 皆可立即解鎖進入）
+    function unlockAutoplay() {
+      if (!autoplayModal) return;
+      try {
+        sessionStorage.setItem('jukebox_unlocked', 'true');
+      } catch (e) {}
+
+      autoplayModal.style.opacity = '0';
+      autoplayModal.style.pointerEvents = 'none';
+      autoplayModal.classList.add('hidden');
+      autoplayModal.classList.remove('flex');
+      autoplayModal.style.display = 'none';
 
       if (currentSong && player && isPlayerReady && typeof player.playVideo === 'function') {
-        player.playVideo();
+        try { player.playVideo(); } catch (e) {}
       } else if (settings.autoPlayNext && !currentSong && queue.length > 0) {
         playNextSong();
       } else {
@@ -704,14 +720,27 @@
     }
 
     if (btnStartPlayer) {
-      btnStartPlayer.addEventListener('click', (e) => {
-        e.stopPropagation();
-        unlockAutoplay();
+      ['click', 'pointerdown', 'touchstart'].forEach(evt => {
+        btnStartPlayer.addEventListener(evt, (e) => {
+          e.stopPropagation();
+          unlockAutoplay();
+        }, { passive: true });
       });
     }
     if (autoplayModal) {
-      autoplayModal.addEventListener('click', unlockAutoplay);
+      ['click', 'pointerdown', 'touchstart'].forEach(evt => {
+        autoplayModal.addEventListener(evt, () => {
+          unlockAutoplay();
+        }, { passive: true });
+      });
     }
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') {
+        if (autoplayModal && !autoplayModal.classList.contains('hidden') && autoplayModal.style.display !== 'none') {
+          unlockAutoplay();
+        }
+      }
+    });
 
     if (btnIdlePlayNext) {
       btnIdlePlayNext.addEventListener('click', () => {
